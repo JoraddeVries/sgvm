@@ -1,5 +1,9 @@
 # Export functions you want users to access
 export(run_sgvm)
+export(get_wclim)
+export(interpolate_wclim)
+export(set_environment)
+export(calc_assimilation)
 
 # Import packages used internally
 import(shiny)
