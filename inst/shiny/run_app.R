@@ -1,6 +1,6 @@
 run_sgvm <- function() {
   shiny::runApp(
-    system.file("app", package = "GVMR"),
+    system.file("app", package = "sgvm"),
     launch.browser = TRUE
   )
 }
