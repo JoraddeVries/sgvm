@@ -190,8 +190,11 @@ server <- function(input, output, session) {
     df <- clim_data()
     
     if (col %in% names(df)) {
-      new_val = ifelse(col %in% c("prec","vapr"), pmax(0,df[[col]] + val), df[[col]] + val)
-      df[[col]] <- new_val   # add or subtract
+      if (col %in% c("prec", "vapr")) { # precipitation and vp can't become negative
+        df[[col]] <- pmax(0, df[[col]] + val)
+      } else {                          #temperature can become negative
+        df[[col]] <- df[[col]] + val 
+      }
       clim_data(df)          # update reactive value
     }
   })
