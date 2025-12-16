@@ -35,7 +35,7 @@ cohort_default <- data.table(
 # =======================================================
 ui <- fluidPage(
   
-  titlePanel("Vegetation Assimilation Model"),
+  titlePanel("Static Global Vegetation Model"),
   
   sidebarLayout(
     
@@ -76,8 +76,7 @@ ui <- fluidPage(
         max     = 365,
         value   = c(120, 280),  # default start / end
         step    = 1,
-        sep     = "",           # no thousands separator
-        ticks   = FALSE
+        sep     = ""           # no thousands separator
       ),
       sliderInput("Wmax", "Maximum Soil Water Content (L/m²)",min = 50, max = 800, value = par_default$Wmax, step = 10),
       sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = par_default$Winit, step = 0.1),
