@@ -135,14 +135,14 @@ server <- function(input, output, session) {
   
   # When "Change Input" is pressed → load climate data
   observeEvent(input$load_climate, {
-    w <- get_wclim(input$latitude, input$longitude, input$climate_scenario)
+    w <- sgvm::get_wclim(input$latitude, input$longitude, input$climate_scenario)
     clim_data(w)
     
     # Load a representative WorldClim raster to plot (example: January tavg)
     r <- rast(
       system.file(
         paste0("data/worldclim/",input$climate_scenario,"/10m/wc2.1_",input$climate_scenario,"_10m_tmax.tif"),
-        package = "GVMR"
+        package = "sgvm"
       )
     )[[current_month_str()]]
     
@@ -222,7 +222,7 @@ server <- function(input, output, session) {
     r_lai <- rast(
       system.file(
         "data/LAI_AnnualMaxMean_2011_2020_0.5deg.tif",
-        package = "GVMR"
+        package = "sgvm"
       )
     )
     par$lai <- extract(r_lai, cbind(par$longitude, par$latitude))[,1]
@@ -236,7 +236,7 @@ server <- function(input, output, session) {
     r_bio <- rast(
       system.file(
         "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
-        package = "GVMR"
+        package = "sgvm"
       )
     )
     par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
@@ -245,18 +245,22 @@ server <- function(input, output, session) {
     # use provided climate data OR default WorldClim
     clim_table <- clim_data()
     if (is.null(clim_table)) {
-      clim_table <- get_wclim(input$latitude, input$longitude)
+      clim_table <- sgvm::get_wclim(input$latitude, input$longitude)
     }
     
     # plot the raster
     if (is.null(clim_raster())) {
-      r <- rast(paste0("Data/Worldclim/",input$climate_scenario,"/10m/wc2.1_",input$climate_scenario,"_10m_tmax.tif"))[[current_month_str()]]
+      r <- rast(
+        system.file(
+          paste0("data/worldclim/",input$climate_scenario,"/10m/wc2.1_",input$climate_scenario,"_10m_tmax.tif"),
+          package = "sgvm"
+      ))[[current_month_str()]]
       clim_raster(r)
     }
     
     # --- Run your model ---
-    dt <- set_environment(dt, clim_table, par)
-    dt <- calc_assimilation(dt, par)
+    dt <- sgvm::set_environment(dt, clim_table, par)
+    dt <- sgvm::calc_assimilation(dt, par)
     
     # Return full dt so all tabs can use it
     return(dt)

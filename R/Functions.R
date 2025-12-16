@@ -76,41 +76,6 @@ set_environment <- function(dt, clim_data, par, cloud_cover = 0.2) {
   dt[, Snow := par$Sinit]
 }
 
-get_wclim_2 <- function(lat, lon){
-  
-  df_month <- data.table(
-    month = 1:12,
-    prec = NA_real_,
-    srad = NA_real_,
-    tmin = NA_real_,
-    tmax = NA_real_,
-    tavg = NA_real_,
-    vapr = NA_real_,
-    wind = NA_real_
-  )
-  
-  for (month in 1:12) {
-    
-    month_st <- sprintf("%02d", month)
-    
-    for (type in c("prec", "srad", "tmin", "tmax", "tavg", "vapr", "wind")) {
-      
-      r <- rast(
-        system.file(
-          paste0("data/worldclim/wc2.1_30s_", type, "_", month_st, ".tif"),
-          package = "GVMR"
-        )
-      )
-      
-      val <- extract(r, cbind(lon, lat))[,1]
-      
-      df_month[month == !!month, (type) := val]
-    }
-  }
-  
-  return(df_month)
-}
-
 get_wclim <- function(lat, lon, data) {
   
   vars <- c("prec","srad","tmin","tmax","vapr")
@@ -127,7 +92,7 @@ get_wclim <- function(lat, lon, data) {
     r <- rast(
       system.file(
         paste0("data/worldclim/",data,"/10m/wc2.1_",data,"_10m_", v, ".tif"),
-        package = "GVMR"
+        package = "sgvm"
       )
     )
     
