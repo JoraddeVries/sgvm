@@ -63,7 +63,7 @@ ui <- fluidPage(
       actionButton("load_climate", "Load Climate Data", class = "btn-warning"),
       
       br(),br(),
-      selectInput("adjust_col", "Column to adjust", choices = c("prec", "tmin", "tmax", "tavg", "vapr")),
+      selectInput("adjust_col", "Column to adjust", choices = c("prec", "tmin", "tmax", "vapr")),
       numericInput("adjust_val", "Adjustment value", value = 0, step = 0.1),
       actionButton("adjust_btn", "Apply Adjustment"),
       
@@ -153,7 +153,7 @@ server <- function(input, output, session) {
     
     df <- copy(clim_data())
     
-    editable_cols <- c("prec", "tmin", "tmax", "tavg", "vapr")
+    editable_cols <- c("prec", "tmin", "tmax", "vapr")
     editable_idx  <- which(names(df) %in% editable_cols) - 1
     month_idx     <- which(names(df) == "month") - 1  # 0-based
     
@@ -190,12 +190,15 @@ server <- function(input, output, session) {
     df <- clim_data()
     
     if (col %in% names(df)) {
-      df[[col]] <- df[[col]] + val   # add or subtract
-      clim_data(df)                  # update reactive value
+      new_val = ifelse(col %in% c("prec","vapr"), pmax(0,df[[col]] + val), df[[col]] + val)
+      df[[col]] <- new_val   # add or subtract
+      clim_data(df)          # update reactive value
     }
   })
   
-  # Run model when button is clicked
+  # -------------------------------------------------------
+  # Run Model (button)
+  # -------------------------------------------------------
   model_results <- eventReactive(input$run_btn, {
     
     # --- Build parameter set ---
