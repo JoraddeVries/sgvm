@@ -1,10 +1,3 @@
-#library(shiny)
-#library(DT)
-#library(data.table)
-#library(terra)
-#library(ggplot2)
-#library(cowplot)
-
 # Dev notes
 # - penology (leaf-on leaf-off slider)
 # - PFTs (evergreen-gymno, temperate-deciduous angiosperm, tropical-evergreen-angiosperm)
