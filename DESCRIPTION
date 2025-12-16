@@ -1,0 +1,17 @@
+Package: sgvm
+Type: Package
+Title: Static Global Vegetation Model
+Version: 0.1.0
+Authors@R: person("Jorad", "de Vries", role = c("aut", "cre"),
+                  email = "jorad.devries@wur.nl")
+Description: A static global vegetation model that simulates NPP from data products on climate, LAI, and biomass.
+License: MIT
+Encoding: UTF-8
+LazyData: true
+Imports:
+    shiny,
+    data.table,
+    ggplot2,
+    terra,
+    DT,
+    cowplot
