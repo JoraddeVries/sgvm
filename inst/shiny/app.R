@@ -6,6 +6,10 @@
 # - incoming irradiance worldclim -> cloudy_sky
 
 library(data.table)
+library(terra)
+library(DT)
+library(ggplot2)
+library(cowplot)
 
 # -------------------------------------------------------
 # Default model parameters
