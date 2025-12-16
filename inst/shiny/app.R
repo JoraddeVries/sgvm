@@ -5,6 +5,8 @@
 # - GPP, NPP en hout als output
 # - incoming irradiance worldclim -> cloudy_sky
 
+library(data.table)
+
 # -------------------------------------------------------
 # Default model parameters
 # -------------------------------------------------------
