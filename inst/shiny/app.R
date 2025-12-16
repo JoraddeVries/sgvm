@@ -191,7 +191,7 @@ server <- function(input, output, session) {
     
     if (col %in% names(df)) {
       if (col %in% c("prec", "vapr")) { # precipitation and vp can't become negative
-        df[[col]] <- pmax(0, df[[col]] + val)
+        df[[col]] <- pmax(0, as.numeric(df[[col]]) + val)
       } else {                          #temperature can become negative
         df[[col]] <- df[[col]] + val 
       }
