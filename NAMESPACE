@@ -1,7 +1,7 @@
 # Export functions you want users to access
 export(run_sgvm)
 export(get_data)
-export(interpolate_wclim)
+export(interpolate_data)
 export(set_environment)
 export(calc_assimilation)
 

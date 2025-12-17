@@ -63,7 +63,7 @@ ui <- fluidPage(
         label   = "Leaf-on period (day of year)",
         min     = 1,
         max     = 365,
-        value   = c(120, 280),  # default start / end
+        value   = c(1, 365),  # default start / end
         step    = 1,
         sep     = ""           # no thousands separator
       ),
@@ -91,16 +91,24 @@ ui <- fluidPage(
       width = 8,
       tabsetPanel(
         
-        tabPanel("Climate Table", 
+        tabPanel("Input Table", 
           DTOutput("clim_table"),
           br(),
           uiOutput("cell_editor"),
           br(),
-          selectInput("adjust_col", "Column to adjust", choices = c("prec", "tmin", "tmax", "vapr")),
-          numericInput("adjust_val", "Adjustment value", value = 0, step = 0.1),
-          actionButton("adjust_btn", "Apply Adjustment"),
+          selectInput("adjust_col", "Change all values of variable:", choices = c("prec", "tmin", "tmax", "vapr")),
+          numericInput("adjust_val", "by:", value = 0, step = 0.1),
+          actionButton("adjust_btn", "Apply change", class = "btn-primary"),
+          tags$h4("Notes"),
+          textAreaInput(
+            "input_notes",
+            label = NULL,
+            placeholder = "prec is precipitation in mm/m2/month\ntmin and tmax are daily minimum and maximum temperatures in dC\nvapr is water vapour pressure in kPa\nlai_tot is total leaf area index in m2 leaf area / m2 ground area\nbiomass is total vegetation biomass in g/m2",
+            width = "100%",
+            height = "150px"
+          ),
         ),
-        tabPanel("Climate Map", plotOutput("clim_map", height = "500px")),
+        tabPanel("Map", plotOutput("clim_map", height = "500px")),
         tabPanel("Assimilation", plotOutput("assim_plot", height = "500px")),
         tabPanel("Water", plotOutput("water_plot", height = "500px")),
         tabPanel("Output Summary",
@@ -155,86 +163,109 @@ server <- function(input, output, session) {
   # -------------------------------------------------------
   
   output$clim_table <- renderDT({
-  req(clim_data())
-  
-  df <- copy(clim_data())
-  
-  datatable(
-    round(df, 2),
-    rownames = FALSE,
-    selection = list(
-      mode = "single",
-      target = "cell"
-    ),
-    options = list(
-      pageLength = 12,
-      dom = "t"
-    )
-  )
-})
-
-#Table editors  
-selected_cell <- reactiveVal(NULL)
-
-observeEvent(input$clim_table_cells_selected, {
-  selected_cell(input$clim_table_cells_selected)
-})
-
-output$cell_editor <- renderUI({
-  sel <- selected_cell()
-  req(sel)
-  
-  df <- clim_data()
-  
-  colname <- names(df)[sel$col]
-  
-  # Only allow editing of these columns
-  editable_cols <- c("prec", "tmin", "tmax", "vapr", "lai", "biomass")
-  if (!colname %in% editable_cols) return(NULL)
-  
-  tagList(
-    tags$hr(),
-    tags$h4(
-      paste(
-        "Edit", colname,
-        "(month", df$month[sel$row], ")"
+    req(clim_data())
+    
+    df <- copy(clim_data())
+    
+    datatable(
+      round(df, 2),
+      rownames = FALSE,
+      editable = FALSE,
+      selection = list(
+        mode = "single",
+        target = "cell"
+      ),
+      options = list(
+        pageLength = 12,
+        dom = "t"
       )
-    ),
-    numericInput(
-      inputId = "cell_value",
-      label   = NULL,
-      value   = df[sel$row, colname],
-      step    = 0.1
-    ),
-    actionButton(
-      "apply_cell_edit",
-      "Apply change",
-      class = "btn-primary"
     )
-  )
-})
+  })
 
-observeEvent(input$apply_cell_edit, {
-  sel <- selected_cell()
-  req(sel)
-  
-  df <- clim_data()
-  colname <- names(df)[sel$col]
-  
-  val <- as.numeric(input$cell_value)
-  if (is.na(val)) return()
-  
-  # Enforce non-negativity where needed
-  if (colname %in% c("prec", "vapr")) {
-    val <- max(0, val)
-  }
-  
-  df[sel$row, colname] <- val
-  clim_data(df)
-})
+  #Table editors
+  selected_cell <- reactiveVal(NULL)
 
+  observeEvent(input$clim_table_cells_selected, {
+    selected_cell(input$clim_table_cells_selected)
+  })
 
-  
+  output$cell_editor <- renderUI({
+    cell <- selected_cell()
+    dt   <- clim_data()
+
+    # Nothing clicked yet
+    if (is.null(cell) || length(cell) != 2) {
+      return(tags$em("Click a cell in the climate table to edit it."))
+    }
+
+    row <- cell[1]
+    col <- cell[2] + 1   # 🔑 convert DT → R indexing
+
+    colname <- names(dt)[col]
+
+    editable_cols <- c("prec", "tmin", "tmax", "vapr", "lai_tot", "biomass")
+
+    # Non-editable column → show message instead of error
+    if (!colname %in% editable_cols) {
+      return(
+        tags$div(
+          tags$hr(),
+          tags$h4("Selected variable cannot be edited."),
+          tags$p(
+            paste(
+              "Valiable:", colname,
+              "| Month:", dt$month[row]
+            )
+          )
+        )
+      )
+    } 
+    
+    tagList(
+      tags$hr(),
+      tags$h4(
+        paste(
+          "Variable", colname,
+          "| Month", dt$month[row]
+        )
+      ),
+      numericInput(
+        inputId = "cell_value",
+        label   = NULL,
+        value   = dt[[colname]][row],
+        step    = 0.1
+      ),
+      actionButton(
+        "apply_cell_edit",
+        "Apply change",
+        class = "btn-primary"
+      )
+    )
+  })
+
+  observeEvent(input$apply_cell_edit, {
+    cell <- selected_cell()
+    req(cell)
+
+    df <- clim_data()
+
+    row <- cell[1]
+    col <- cell[2] + 1   # 🔑 DT → R
+
+    colname <- names(df)[col]
+
+    val <- suppressWarnings(as.numeric(input$cell_value))
+    if (is.na(val)) return()
+
+    # Enforce non-negativity
+    if (colname %in% c("prec", "vapr", "lai_tot", "biomass")) {
+      val <- max(0, val)
+    }
+
+    df[row, colname] <- val
+    clim_data(df)
+  })
+
   # Column-wise edits
   observeEvent(input$adjust_btn, {
     req(clim_data())
@@ -245,7 +276,7 @@ observeEvent(input$apply_cell_edit, {
     df <- clim_data()
     
     if (col %in% names(df)) {
-      if (col %in% c("prec", "vapr")) { # precipitation and vp can't become negative
+      if (col %in% c("prec", "vapr", "lai_tot", "biomass")) { # precipitation and vp can't become negative
         df[[col]] <- pmax(0, as.numeric(df[[col]]) + val)
       } else {                          #temperature can become negative
         df[[col]] <- df[[col]] + val 
@@ -337,7 +368,7 @@ observeEvent(input$apply_cell_edit, {
     
     # --- Assimilation & NPP summaries ---
     assim_month <- dt[, .(
-      LAI        = mean(.SD$sumLAI,    na.rm = TRUE),
+      LAI        = mean(.SD$lai_tot,    na.rm = TRUE),
       biomass    = mean(biomass,   na.rm = TRUE),
       Assim_pot  = sum(Assim_pot,  na.rm = TRUE),
       Assim_wlim = sum(Assim_wlim, na.rm = TRUE),
@@ -442,14 +473,15 @@ observeEvent(input$apply_cell_edit, {
     
     dt_water <- dt[, .(
       Water_mean = mean(Water),
-      Snow_mean = mean(Snow)
+      Snow_mean = mean(Snow),
+      Tr_mean = sum(Tr)
     ), by = doy]
     
     # Reshape to long format for easy legend handling
     dt_water_long <- melt(
       dt_water,
       id.vars = "doy",
-      measure.vars = c("Water_mean", "Snow_mean"),
+      measure.vars = c("Water_mean", "Snow_mean", "Tr_mean"),
       variable.name = "Type",
       value.name = "value"
     )
@@ -457,8 +489,8 @@ observeEvent(input$apply_cell_edit, {
     ggplot(dt_water_long, aes(x = doy, y = value, color = Type)) +
       geom_line(linewidth = 1) +
       scale_color_manual(
-        values = c("Snow_mean" = "black", "Water_mean" = "blue"),
-        labels = c("Soil Water", "Snow")
+        values = c("Snow_mean" = "black", "Water_mean" = "blue", "Tr_mean" = "green"),
+        labels = c("Soil Water", "Snow", "Transpiration")
       ) +
       labs(
         x = "Day of Year",

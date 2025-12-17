@@ -1,2 +1,3 @@
 # Ignore all contents of 'Other' folders
 /Other/
+.Rproj.user

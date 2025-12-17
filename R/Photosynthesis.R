@@ -113,16 +113,21 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN) {
     Ci = CalcCi(gs0, An, Ca, Ci_star, Rd, fvpd)
     Cc = Ci - An/gm
     gs = gs0 + ((An + Rd)/(Ci - Ci_star))*fvpd
+    gsw = gs*1.6 #stomatal conductance to water (mol/m2/s)
+    gbw = gb*1.6 #boundary layer conductance conductance to water (mol/m2/s)
     
-    rbh = 100*sqrt(w/u) #boundary layer resistances to heat (rbh) and water (rbw) (in s m-1)
-    rbw = 0.93*rbh
-    rt = 0.74*(log((2-0.7*H)/(0.1*H))**2/(0.16*u))#Turbulent resistance (in s m-1)
-    rsw = (1/(1.6*gs))/mv               # stomatal resistance to water in s m-1 (/mv to convert from m2*s/mol)
-    PAR = PPFD/(1e6 * 0.55 * 4.55)      # in MJ/m2/s; 1e6: J to MJ, o.55: fraction PAR in Irradiance, 4.55: umol/J photons per J
-    Tr = (es*PAR + cp*vpd/(rbh+rt)) / (L*(es+y*(rbw+rsw+rt)/(rbh+rt))) #caluclate transpiration with Pennman-Monteith (1973)
-    WUE = An/Tr
+    # rbh = 100*sqrt(w/u) #boundary layer resistances to heat (rbh) and water (rbw) (in s m-1)
+    # rbw = 0.93*rbh
+    # rt = 0.74*(log((2-0.7*H)/(0.1*H))**2/(0.16*u))#Turbulent resistance (in s m-1)
+    # rsw = (1/(1.6*gs))/mv               # stomatal resistance to water in s m-1 (/mv to convert from m2*s/mol)
+    # PAR = PPFD/(1e6 * 0.55 * 4.55)      # in MJ/m2/s; 1e6: J to MJ, o.55: fraction PAR in Irradiance, 4.55: umol/J photons per J
+    # Tr = (es*PAR + cp*vpd/(rbh+rt)) / (L*(es+y*(rbw+rsw+rt)/(rbh+rt))) #caluclate transpiration with Pennman-Monteith (1973)
+    # WUE = An/Tr
+
+    Tr = 1 / (1 / gsw + 1 / gbw) * vpd / (Pair*1e3) #Transpiration in (mol/m^2/s)
+    Tr_L = Tr * 18.015 * 1e-3 # convert from mol to L
     
-    return (list(An=An, Tr=Tr)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
+    return (list(An=An, Tr=Tr_L)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
   })
 }
 
@@ -151,42 +156,52 @@ constants = c(
 )
 
 parametersC3 = c(
-  # Parameters
-  Sco25 = 2800,
-  E_Sco = -24460,	#J/mol
-  Kmc25 = 270,
-  E_Kmc = 80990,	#J/mol
-  Kmo25 = 165000,
-  E_Kmo = 23720,	#J/mol
-  theta = 0.7,
-  k2ll_a = 0.044,	# values for linear relation between k2ll and leaf N (from Yin et al 2009 PCE)
-  k2ll_b = 0.205,	#
-  fpseudo = 0.1,
-  fcyc = 0.131,
-  a1 = 0.9,
-  b1 = 0.15,
+  # Rubisco CO2/O2 specificity
+  Sco25 = 2800, # Sc/o parameter at 25 C
+  E_Sco = -24460,	# Apparent activation energy of Sc/o (J/mol)
+   # Michaelis-Menten constants carboxylation (J/mol/K)
+  Kmc25 = 270, # Km for CO2 at 25 C (μmol/mol)
+  E_Kmc = 80990,	# Activation energy of Kmc (J/mol)
+  # Michaelis-Menten constants oxygenation
+  Kmo25 = 165000, # Km for O2 at 25 C (umol/mol)
+  E_Kmo = 23720,	# Activation energy of Kmo (J/mol)
+  # Rubisco activity
   Vcmax25_a = 30.40,	# values for linear relation between Vcmax25 and leaf N (from Yin et al 2009 PCE)
   Vcmax25_b = 4.36,	#
-  E_Vcmax = 65330,	# J/mol
-  Jmax25_a = 99.38,	# values for linear relation between Jmax25 and leaf N (from Yin et al 2009 PCE)
+  E_Vcmax = 65330,	# Activation energy of Vcmax (J/mol)
+  # Electron transport
+  theta = 0.7, # Curvature parameter
+  k2ll_a = 0.044,	# values for linear relation between k2ll and leaf N (from Yin et al 2009 PCE)
+  k2ll_b = 0.205,	#
+  fpseudo = 0.1, # Fraction of electrons at PSI that are used by alternative electron sinks
+  fcyc = 0.131, #  Fraction of electrons at PSI that follow cyclic transport around PSI
+  Jmax25_a = 99.38,	# values for linear relation between Jmax25 and leaf N (from Yin et al 2009 PCE) Maximum rate of electron transport (μmol/m2/s)
   Jmax25_b = 5.75,	#
-  E_Jmax = 30000,		#J/mol, range 26900-94400
-  D_Jmax = 200000,	#J/mol
-  S_Jmax = 650,		#J/K/mol
-  Rd25 = 1.2,
-  E_Rd = 46390,	#J/mol
-  gm25 = 0.4,
-  E_gm = 49600,	#J/mol
-  D_gm = 437400,	#J/mol
-  S_gm = 1400,	#J/mol
-  gs0 = 0.01,
-  gb = 1.5,
-  TPU25_a = 5.367,	# values for linear relation between TPU25 and leaf N (from Yin et al 2009 PCE)
+  E_Jmax = 30000,		# Activation energy Jmax (J/mol)
+  D_Jmax = 200000,	# Deactivation energy of Jmax (J/mol)
+  S_Jmax = 650,		# Entropy term for Jmax (J/K/mol)
+  # Triose phosphate utilisation
+  TPU25_a = 5.367,	# values for linear relation between TPU25 and leaf N (from Yin et al 2009 PCE) # Maximum rate of triose phosphate utilisation (μmol/m2/s)
   TPU25_b = 0.93,	#
-  E_TPU = 53.1,
-  D_TPU = 20.18,
-  S_TPU = 0.65,
+  E_TPU = 53100, # Activation energy TPU (J/mol)
+  D_TPU = 20180, # Deactivation energy of TPU (J/mol)
+  S_TPU = 650, #  Entropy term for TPU (J/K/mol)
+  # Respiration
+  Rd25 = 1.2, # Respiration rate at 25 C (μmol/m2/s)
+  E_Rd = 46390,	# Activation energy of Rd (J/mol)
+  # Mesophyll conductance
+  gm25 = 0.4, # Mesophyll conductance at 25 C (mol/m2/s)
+  E_gm = 49600,	# Activation energy of gm (J/mol)
+  D_gm = 437400,	# Deactivation energy of gm (J/mol)
+  S_gm = 1400,	# Entropy term for gm (J/K/mol)
+  # unit conversion
   mCO2 = 44.0095,		#molar mass of CO2 (g/mol)
+  # Stomatal conductance
+  a1 = 0.85, # Empirical parameter in gs formula
+  b1 = 0.14, # Empirical parameter in gs formula (1/Pa)
+  gs0 = 0.01, # Minimum stomatal conductance to fluxes of CO2 in darkness (mol/m2/s)
+  gb = 0.5, # boundary layer conductance for CO2 (mol/m2/s)
+  #Vegetation stuff for Pennman-Monteith
   w = 0.1, #leaf width in m
   u = 2, #wind velocity in m s-1
   H = 2, #canopy height in m

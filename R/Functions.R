@@ -1,5 +1,14 @@
 
-set_environment <- function(dt, clim_data, par, cloud_cover = 0.2) {
+set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
+
+  # Add month column to dt
+  dt[, month := ceiling(doy / 30.5)]  # approximate month from doy
+  
+  # Interpolate input data
+  input_daily <- interpolate_data(input_data)
+  
+  # Join monthly precipitation
+  dt <- merge(dt, input_daily, by = "doy", all.x = TRUE, sort = FALSE)
   
   # Row-wise calling of clear_sky
   cs <- mapply(
@@ -53,15 +62,6 @@ set_environment <- function(dt, clim_data, par, cloud_cover = 0.2) {
   
   # Optionally, total PAR
   dt[, PAR_total := PAR_dir + PAR_dif]
-  
-  # Precipitation (mm/timestep)
-  # Add month column to dt
-  dt[, month := ceiling(doy / 30.5)]  # approximate month from doy
-  
-  clim_daily <- interpolate_wclim(clim_data)
-  
-  # Join monthly precipitation
-  dt <- merge(dt, clim_daily, by = "doy", all.x = TRUE, sort = FALSE)
   
   # atmospheric COS concentration in ppm
   dt[, Ca := par$Ca]
@@ -152,7 +152,7 @@ get_data <- function(lat, lon, data) {
   return(dt[])
 }
 
-interpolate_wclim <- function(dt_month) {
+interpolate_data <- function(dt_month) {
   
   # Ensure df_month is data.table
   dt_month <- as.data.table(dt_month)
