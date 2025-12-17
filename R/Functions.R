@@ -146,8 +146,8 @@ get_data <- function(lat, lon, data) {
       package = "sgvm"
     )
   )
-  par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
-  dt[, biomass := par$bio]
+  bio <- extract(r_bio, cbind(lon, lat))[,1] * 100 # from Mg/ha to g/m2
+  dt[, biomass := bio]
   
   return(dt[])
 }
