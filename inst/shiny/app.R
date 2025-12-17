@@ -59,16 +59,7 @@ ui <- fluidPage(
         ),
         selected = "historic"
       ),
-      
-      actionButton("load_climate", "Load Climate Data", class = "btn-warning"),
-      
-      br(),br(),
-      selectInput("adjust_col", "Column to adjust", choices = c("prec", "tmin", "tmax", "vapr")),
-      numericInput("adjust_val", "Adjustment value", value = 0, step = 0.1),
-      actionButton("adjust_btn", "Apply Adjustment"),
-      
-      br(), br(),
-      tags$h4("Initial Conditions"),
+
       sliderInput(
         inputId = "lai_range",
         label   = "Leaf-on period (day of year)",
@@ -78,6 +69,12 @@ ui <- fluidPage(
         step    = 1,
         sep     = ""           # no thousands separator
       ),
+      
+      actionButton("load_data", "Load Climate and Vegetation Data", class = "btn-warning"),
+      
+      br(), br(),
+      tags$h4("Initial Conditions"),
+      
       sliderInput("Wmax", "Maximum Soil Water Content (L/m²)",min = 50, max = 800, value = par_default$Wmax, step = 10),
       sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = par_default$Winit, step = 0.1),
       sliderInput("Sinit", "Initial Snowpack (L water/m²)", min = 0, max = 100, value = par_default$Sinit, step = 5),
@@ -96,7 +93,13 @@ ui <- fluidPage(
       width = 8,
       tabsetPanel(
         
-        tabPanel("Climate Table", DTOutput("clim_table")),
+        tabPanel("Climate Table", 
+          DTOutput("clim_table"),
+          br(),
+          selectInput("adjust_col", "Column to adjust", choices = c("prec", "tmin", "tmax", "vapr")),
+          numericInput("adjust_val", "Adjustment value", value = 0, step = 0.1),
+          actionButton("adjust_btn", "Apply Adjustment"),
+        ),
         tabPanel("Climate Map", plotOutput("clim_map", height = "500px")),
         tabPanel("Assimilation", plotOutput("assim_plot", height = "500px")),
         tabPanel("Water", plotOutput("water_plot", height = "500px")),
@@ -133,7 +136,7 @@ server <- function(input, output, session) {
   
   
   # When "Change Input" is pressed → load climate data
-  observeEvent(input$load_climate, {
+  observeEvent(input$load_data, {
     w <- sgvm::get_wclim(input$latitude, input$longitude, input$climate_scenario)
     clim_data(w)
     
