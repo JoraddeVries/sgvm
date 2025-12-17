@@ -78,7 +78,7 @@ set_environment <- function(dt, clim_data, par, cloud_cover = 0.2) {
 
 get_data <- function(lat, lon, data) {
   
-  vars <- c("prec","srad","tmin","tmax","vapr","lai_tot","biomass")
+  vars <- c("prec","srad","tmin","tmax","vapr","lai_tot")
   
   # initialise output
   dt <- data.table(
