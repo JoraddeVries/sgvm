@@ -43,11 +43,7 @@ ui <- fluidPage(
       width = 4,
       
       tags$h4("Climate Data"),
-      
-      sliderInput("latitude", "Latitude", min = -90, max = 90, value = par_default$latitude, step = 1),
-      sliderInput("longitude", "Longitude", min = -180, max = 180, value = par_default$longitude, step = 1),
-      sliderInput("Ca", "Atmospheric CO2", min = 200, max = 1200, value = par_default$Ca, step = 10),
-      
+
       br(),
       radioButtons(
         inputId = "climate_scenario",
@@ -59,7 +55,9 @@ ui <- fluidPage(
         ),
         selected = "historic"
       ),
-
+      sliderInput("latitude", "Latitude", min = -90, max = 90, value = par_default$latitude, step = 1),
+      sliderInput("longitude", "Longitude", min = -180, max = 180, value = par_default$longitude, step = 1),
+      sliderInput("Ca", "Atmospheric CO2", min = 200, max = 1200, value = par_default$Ca, step = 10),
       sliderInput(
         inputId = "lai_range",
         label   = "Leaf-on period (day of year)",
@@ -95,6 +93,8 @@ ui <- fluidPage(
         
         tabPanel("Climate Table", 
           DTOutput("clim_table"),
+          br(),
+          uiOutput("cell_editor"),
           br(),
           selectInput("adjust_col", "Column to adjust", choices = c("prec", "tmin", "tmax", "vapr")),
           numericInput("adjust_val", "Adjustment value", value = 0, step = 0.1),
@@ -134,10 +134,9 @@ server <- function(input, output, session) {
   clim_raster <- reactiveVal(NULL)
   current_month_str <- reactive({as.integer(format(Sys.Date(), "%m"))})   # 1-12
   
-  
-  # When "Change Input" is pressed → load climate data
+  # When "load data" is pressed:
   observeEvent(input$load_data, {
-    w <- sgvm::get_wclim(input$latitude, input$longitude, input$climate_scenario)
+    w <- sgvm::get_data(input$latitude, input$longitude, input$climate_scenario)
     clim_data(w)
     
     # Load a representative WorldClim raster to plot (example: January tavg)
@@ -150,40 +149,93 @@ server <- function(input, output, session) {
     
     clim_raster(r)
   })
+
+  # -------------------------------------------------------
+  # Climate and vegetation table
+  # -------------------------------------------------------
   
   output$clim_table <- renderDT({
-    req(clim_data())
-    
-    df <- copy(clim_data())
-    
-    editable_cols <- c("prec", "tmin", "tmax", "vapr")
-    editable_idx  <- which(names(df) %in% editable_cols) - 1
-    month_idx     <- which(names(df) == "month") - 1  # 0-based
-    
-    datatable(
-      round(df, 2),
-      rownames = FALSE,
-      editable = list(
-        target  = "cell",
-        columns = editable_idx,
-        disable = list(columns = month_idx)  # 🔒 hard lock
-      ),
-      options = list(
-        pageLength = 12,
-        dom = "t"
-      )
+  req(clim_data())
+  
+  df <- copy(clim_data())
+  
+  datatable(
+    round(df, 2),
+    rownames = FALSE,
+    selection = list(
+      mode = "single",
+      target = "cell"
+    ),
+    options = list(
+      pageLength = 12,
+      dom = "t"
     )
-  })
+  )
+})
+
+#Table editors  
+selected_cell <- reactiveVal(NULL)
+
+observeEvent(input$clim_table_cells_selected, {
+  selected_cell(input$clim_table_cells_selected)
+})
+
+output$cell_editor <- renderUI({
+  sel <- selected_cell()
+  req(sel)
   
-  # Save user edits
-  observeEvent(input$clim_table_cell_edit, {
-    info <- input$clim_table_cell_edit
-    df <- clim_data()
-    df[info$row, info$col] <- info$value
-    clim_data(df)
-  })
+  df <- clim_data()
   
-  # Column-wise adjustments
+  colname <- names(df)[sel$col]
+  
+  # Only allow editing of these columns
+  editable_cols <- c("prec", "tmin", "tmax", "vapr", "lai", "biomass")
+  if (!colname %in% editable_cols) return(NULL)
+  
+  tagList(
+    tags$hr(),
+    tags$h4(
+      paste(
+        "Edit", colname,
+        "(month", df$month[sel$row], ")"
+      )
+    ),
+    numericInput(
+      inputId = "cell_value",
+      label   = NULL,
+      value   = df[sel$row, colname],
+      step    = 0.1
+    ),
+    actionButton(
+      "apply_cell_edit",
+      "Apply change",
+      class = "btn-primary"
+    )
+  )
+})
+
+observeEvent(input$apply_cell_edit, {
+  sel <- selected_cell()
+  req(sel)
+  
+  df <- clim_data()
+  colname <- names(df)[sel$col]
+  
+  val <- as.numeric(input$cell_value)
+  if (is.na(val)) return()
+  
+  # Enforce non-negativity where needed
+  if (colname %in% c("prec", "vapr")) {
+    val <- max(0, val)
+  }
+  
+  df[sel$row, colname] <- val
+  clim_data(df)
+})
+
+
+  
+  # Column-wise edits
   observeEvent(input$adjust_btn, {
     req(clim_data())
     
@@ -226,48 +278,44 @@ server <- function(input, output, session) {
       cohort = rep(1:par$n_cohorts, times = 365 * par$n_steps)
     )
     
-    #load LAI raster
-    r_lai <- rast(
-      system.file(
-        "data/LAI_AnnualMaxMean_2011_2020_0.5deg.tif",
-        package = "sgvm"
-      )
-    )
-    par$lai <- extract(r_lai, cbind(par$longitude, par$latitude))[,1]
+    # #load LAI raster
+    # r_lai <- rast(
+    #   system.file(
+    #     "data/LAI_AnnualMaxMean_2011_2020_0.5deg.tif",
+    #     package = "sgvm"
+    #   )
+    # )
+    # par$lai <- extract(r_lai, cbind(par$longitude, par$latitude))[,1]
     
-    #set lai start and end days
-    dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
-    dt[, sumLAI := par$lai * phenology]
-    dt[, LAI := cohort_default$LAI[cohort] * par$lai * phenology]
+    # #set lai start and end days
+    # dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
+    # dt[, sumLAI := par$lai * phenology]
+    # dt[, LAI := cohort_default$LAI[cohort] * par$lai * phenology]
     
-    #load Biomass raster
-    r_bio <- rast(
-      system.file(
-        "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
-        package = "sgvm"
-      )
-    )
-    par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
-    dt[, biomass := par$bio]
+    # #load Biomass raster
+    # r_bio <- rast(
+    #   system.file(
+    #     "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
+    #     package = "sgvm"
+    #   )
+    # )
+    # par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
+    # dt[, biomass := par$bio]
     
-    # use provided climate data OR default WorldClim
+    # make sure the model runs also if the data wasn't loaded
     clim_table <- clim_data()
     if (is.null(clim_table)) {
-      clim_table <- sgvm::get_wclim(input$latitude, input$longitude)
+      clim_table <- sgvm::get_data(input$latitude, input$longitude, input$climate_scenario)
     }
     
-    # plot the raster
-    if (is.null(clim_raster())) {
-      r <- rast(
-        system.file(
-          paste0("data/worldclim/",input$climate_scenario,"/10m/wc2.1_",input$climate_scenario,"_10m_tmax.tif"),
-          package = "sgvm"
-      ))[[current_month_str()]]
-      clim_raster(r)
-    }
-    
-    # --- Run your model ---
+    # interpolate the climate and vegetation data to days
     dt <- sgvm::set_environment(dt, clim_table, par)
+
+    # modify lai based on phenology input
+    dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
+    dt[, LAI := cohort_default$LAI[cohort] * lai_tot * phenology]
+
+    # calculate assimilation
     dt <- sgvm::calc_assimilation(dt, par)
     
     # Return full dt so all tabs can use it

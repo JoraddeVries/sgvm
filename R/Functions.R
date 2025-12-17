@@ -58,10 +58,10 @@ set_environment <- function(dt, clim_data, par, cloud_cover = 0.2) {
   # Add month column to dt
   dt[, month := ceiling(doy / 30.5)]  # approximate month from doy
   
-  wclim <- interpolate_wclim(clim_data)
+  clim_daily <- interpolate_wclim(clim_data)
   
   # Join monthly precipitation
-  dt <- merge(dt, wclim, by = "doy", all.x = TRUE, sort = FALSE)
+  dt <- merge(dt, clim_daily, by = "doy", all.x = TRUE, sort = FALSE)
   
   # atmospheric COS concentration in ppm
   dt[, Ca := par$Ca]
@@ -76,26 +76,34 @@ set_environment <- function(dt, clim_data, par, cloud_cover = 0.2) {
   dt[, Snow := par$Sinit]
 }
 
-get_wclim <- function(lat, lon, data) {
+get_data <- function(lat, lon, data) {
   
-  vars <- c("prec","srad","tmin","tmax","vapr")
+  vars <- c("prec","srad","tmin","tmax","vapr","lai_tot","biomass")
   
   # initialise output
-  df_month <- data.table(
+  dt <- data.table(
     month = 1:12
   )
   
+  # loop over the different vars in the column, these are provided in stacked rasters
   for (v in vars) {
-    df_month[, (v) := NA_real_]
+    dt[, (v) := NA_real_]
+
+    path <- if(v == "lai_tot") {
+      "data/LAI_MonthlyMean_2011_2020_0.5deg.tif"
+    } else {
+      paste0("data/worldclim/",data,"/10m/wc2.1_",data,"_10m_", v, ".tif")
+    }
     
     # load stacked raster (12 layers)
     r <- rast(
       system.file(
-        paste0("data/worldclim/",data,"/10m/wc2.1_",data,"_10m_", v, ".tif"),
+        path,
         package = "sgvm"
       )
     )
     
+    # loop over the layers, representing months
     for (m in 1:12) {
       
       rm <- r[[m]]
@@ -115,52 +123,59 @@ get_wclim <- function(lat, lon, data) {
         
         warning(
           sprintf(
-            "WorldClim missing at (lat=%.3f, lon=%.3f) for %s month %d; using nearest pixel.",
+            "Data missing at (lat=%.3f, lon=%.3f) for %s month %d; using nearest pixel.",
             lat, lon, v, m
           ),
           call. = FALSE
         )
       }
       
-      df_month[month == m, (v) := px]
+      dt[month == m, (v) := px]
     }
   }
+    
+  #load Biomass raster
+  r_bio <- rast(
+    system.file(
+      "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
+      package = "sgvm"
+    )
+  )
+  par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
+  dt[, biomass := par$bio]
   
-  return(df_month[])
+  return(dt[])
 }
 
-
-
-
-interpolate_wclim <- function(df_month) {
+interpolate_wclim <- function(dt_month) {
   
   # Ensure df_month is data.table
-  df_month <- as.data.table(df_month)
+  dt_month <- as.data.table(dt_month)
   
   # Middle-of-month days of year
   month_doy <- c(15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349)
   
   # Prepare output data.table
-  df_daily <- data.table(
+  dt_daily <- data.table(
     doy = 1:365
   )
   
   # Climate variable names
-  vars <- c("prec","srad","tmin","tmax","tavg","vapr","wind")
+  vars <- c("prec","srad","tmin","tmax","tavg","vapr","wind","lai","biomass")
   
   # Loop through variables and interpolate
   for (col in vars) {
-    df_daily[, (col) :=
+    dt_daily[, (col) :=
                approx(
                  x = month_doy,
-                 y = df_month[[col]],
-                 xout = df_daily$doy,
+                 y = dt_month[[col]],
+                 xout = dt_daily$doy,
                  rule = 2
                )$y
     ]
   }
   
-  return(df_daily)
+  return(dt_daily)
 }
 
 calc_assimilation <- function(dt, par, kdif = 0.7) {
