@@ -166,7 +166,7 @@ interpolate_wclim <- function(dt_month) {
   )
   
   # Climate variable names
-  vars <- c("prec","srad","tmin","tmax","tavg","vapr","wind","lai","biomass")
+  vars <- c("prec","srad","tmin","tmax","tavg","vapr","wind","lai_tot","biomass")
   
   # Loop through variables and interpolate
   for (col in vars) {
