@@ -95,13 +95,18 @@ get_data <- function(lat, lon, data) {
       paste0("data/worldclim/",data,"/10m/wc2.1_",data,"_10m_", v, ".tif")
     }
     
-    # load stacked raster (12 layers)
-    r <- rast(
-      system.file(
-        path,
-        package = "sgvm"
+    # throw an error if the path is empty
+    full_path <- system.file(path, package = "sgvm")
+
+    if (full_path == "") {
+      stop(
+        "Raster not found in sgvm package:\n",
+        path
       )
-    )
+    }
+
+    # load stacked raster (12 layers)
+    r <- rast(full_path)
     
     # loop over the layers, representing months
     for (m in 1:12) {
