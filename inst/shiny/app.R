@@ -144,14 +144,14 @@ server <- function(input, output, session) {
   
   # When "load data" is pressed:
   observeEvent(input$load_data, {
-    w <- sgvm::get_data(input$latitude, input$longitude, input$climate_scenario)
+    w <- SGVM::get_data(input$latitude, input$longitude, input$climate_scenario)
     clim_data(w)
     
     # Load a representative WorldClim raster to plot (example: January tavg)
     r <- rast(
       system.file(
         paste0("data/worldclim/",input$climate_scenario,"/10m/wc2.1_",input$climate_scenario,"_10m_tmax.tif"),
-        package = "sgvm"
+        package = "SGVM"
       )
     )[[current_month_str()]]
     
@@ -313,7 +313,7 @@ server <- function(input, output, session) {
     # r_lai <- rast(
     #   system.file(
     #     "data/LAI_AnnualMaxMean_2011_2020_0.5deg.tif",
-    #     package = "sgvm"
+    #     package = "SGVM"
     #   )
     # )
     # par$lai <- extract(r_lai, cbind(par$longitude, par$latitude))[,1]
@@ -327,7 +327,7 @@ server <- function(input, output, session) {
     # r_bio <- rast(
     #   system.file(
     #     "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
-    #     package = "sgvm"
+    #     package = "SGVM"
     #   )
     # )
     # par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
@@ -336,18 +336,18 @@ server <- function(input, output, session) {
     # make sure the model runs also if the data wasn't loaded
     clim_table <- clim_data()
     if (is.null(clim_table)) {
-      clim_table <- sgvm::get_data(input$latitude, input$longitude, input$climate_scenario)
+      clim_table <- SGVM::get_data(input$latitude, input$longitude, input$climate_scenario)
     }
     
     # interpolate the climate and vegetation data to days
-    dt <- sgvm::set_environment(dt, clim_table, par)
+    dt <- SGVM::set_environment(dt, clim_table, par)
 
     # modify lai based on phenology input
     dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
     dt[, LAI := cohort_default$LAI[cohort] * lai_tot * phenology]
 
     # calculate assimilation
-    dt <- sgvm::calc_assimilation(dt, par)
+    dt <- SGVM::calc_assimilation(dt, par)
     
     # Return full dt so all tabs can use it
     return(dt)

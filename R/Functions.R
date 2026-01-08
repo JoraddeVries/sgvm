@@ -96,7 +96,7 @@ get_data <- function(lat, lon, data) {
     }
     
     # throw an error if the path is empty
-    full_path <- system.file(path, package = "sgvm")
+    full_path <- system.file(path, package = "SGVM")
 
     if (full_path == "") {
       stop(
@@ -143,7 +143,7 @@ get_data <- function(lat, lon, data) {
   r_bio <- rast(
     system.file(
       "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
-      package = "sgvm"
+      package = "SGVM"
     )
   )
   bio <- extract(r_bio, cbind(lon, lat))[,1] * 100 # from Mg/ha to g/m2
