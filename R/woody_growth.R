@@ -1,7 +1,7 @@
-yin_beta_growth <- function(t, ym,  tm, te) {
+yin_beta_growth <- function(t, ym, tm, te) {
     #calculate the growth rate at time t for parameters tm (midpoint), te (endpoint) and ym (maximum)
-    cm = ym * ((2*te-tm) / (te * (te-tm))) * (tm/te)**(tm/(te-tm))
-    r = t<te ? cm * ((te-t) / (te-tm)) * (t/tm)**(tm/(te-tm)) : 0
+    cm = ym * ((2*te-tm) / (te * (te-tm))) * (tm/te) ^ (tm/(te-tm))
+    r = pmax(0, cm * ((te - t) / (te - tm)) * ((t / tm) ^ (tm/(te-tm))))
     return(r)
 }
 
@@ -27,7 +27,7 @@ calc_woody_growth <- function(dt) {
 
     # thermal time
     tbase = 5 #degrees C
-    gdd = max(0, env$Temp-tbase)
+    gdd = max(0, env$Temp-tbase) * env$time_step/86400
 
     # ---- 1. Cohort emergence ----
     emergence_buffer <- emergence_buffer + gdd/100
@@ -43,6 +43,7 @@ calc_woody_growth <- function(dt) {
           wall = 0
         )
       )
+      # update cohort id and the emergence buffer
       next_cohort_id <- next_cohort_id + 1
       emergence_buffer <- emergence_buffer - 1
     }
@@ -53,9 +54,13 @@ calc_woody_growth <- function(dt) {
       # Age update
       cell_cohorts[, age := age + gdd]
 
+      # Growth limitations of temperature and water
+      f_W = env$f_Tr
+      f_C = pmin(1,pmax(0,env$NPP))
+
       # update states
-      cell_cohorts[, size := size + yin_beta_growth(gdd, 1, 500, 1000)]
-      cell_cohorts[, wall := wall + yin_beta_growth(gdd, 1, 800, 1500)]
+      cell_cohorts[, size := size + f_W * yin_beta_growth(t=age, ym=1, tm=100, te=200) * gdd]
+      cell_cohorts[, wall := wall + f_C * yin_beta_growth(t=age, ym=1, tm=200, te=400)  * gdd]
     }
   }
 

@@ -506,8 +506,9 @@ server <- function(input, output, session) {
       value.name = "value"
     )
 
-    ggplot(plot_dt, aes(x = age, y = value, group = cohort_id)) +
+    ggplot(plot_dt, aes(x = cohort_id, y = value)) +
       geom_line(alpha = 0.4) +
+      geom_point() +
       facet_wrap(
         ~ variable,
         scales = "free_y",
@@ -519,7 +520,7 @@ server <- function(input, output, session) {
         )
       ) +
       labs(
-        x = "Age (GDD)",
+        x = "Cell cohort",
         y = NULL
       ) +
       theme_minimal() +
