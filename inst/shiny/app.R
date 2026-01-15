@@ -488,8 +488,8 @@ server <- function(input, output, session) {
   # Wood growth tab
   # -------------------------------------------------------   
   wood_growth <- reactive({
-    req(dt_reactive())
-    calc_woody_growth(dt_reactive(), par)
+    req(model_results())
+    calc_woody_growth(model_results())
   })
 
   output$wood_growth_plot <- renderPlot({

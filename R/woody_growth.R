@@ -5,7 +5,7 @@ yin_beta_growth <- function(t, ym,  tm, te) {
     return(r)
 }
 
-calc_woody_growth <- function(dt, par) {
+calc_woody_growth <- function(dt) {
 
   n <- nrow(dt)
 
@@ -27,7 +27,7 @@ calc_woody_growth <- function(dt, par) {
 
     # thermal time
     tbase = 5 #degrees C
-    gdd = max(0, env.Temp-tbase)
+    gdd = max(0, env$Temp-tbase)
 
     # ---- 1. Cohort emergence ----
     emergence_buffer <- emergence_buffer + gdd/100
