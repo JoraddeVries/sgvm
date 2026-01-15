@@ -96,7 +96,7 @@ ui <- fluidPage(
           br(),
           uiOutput("cell_editor"),
           br(),
-          selectInput("adjust_col", "Change all values of variable:", choices = c("prec", "tmin", "tmax", "vapr")),
+          selectInput("adjust_col", "Change all values of variable:", choices = c("prec", "tmin", "tmax", "vapr","lai_tot","biomass")),
           numericInput("adjust_val", "by:", value = 0, step = 0.1),
           actionButton("adjust_btn", "Apply change", class = "btn-primary"),
           tags$h4("Notes"),
@@ -308,30 +308,6 @@ server <- function(input, output, session) {
       tod = rep(1:par$n_steps, each = par$n_cohorts) / par$n_steps - 0.5/par$n_steps,
       cohort = rep(1:par$n_cohorts, times = 365 * par$n_steps)
     )
-    
-    # #load LAI raster
-    # r_lai <- rast(
-    #   system.file(
-    #     "data/LAI_AnnualMaxMean_2011_2020_0.5deg.tif",
-    #     package = "SGVM"
-    #   )
-    # )
-    # par$lai <- extract(r_lai, cbind(par$longitude, par$latitude))[,1]
-    
-    # #set lai start and end days
-    # dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
-    # dt[, sumLAI := par$lai * phenology]
-    # dt[, LAI := cohort_default$LAI[cohort] * par$lai * phenology]
-    
-    # #load Biomass raster
-    # r_bio <- rast(
-    #   system.file(
-    #     "data/ESACCI-BIOMASS-L4-AGB-MERGED-50000m-fv6.0.tif",
-    #     package = "SGVM"
-    #   )
-    # )
-    # par$bio <- extract(r_bio, cbind(par$longitude, par$latitude))[,1] * 100 # from Mg/ha to g/m2
-    # dt[, biomass := par$bio]
     
     # make sure the model runs also if the data wasn't loaded
     clim_table <- clim_data()
