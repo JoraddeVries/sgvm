@@ -347,6 +347,3 @@ calc_water <- function(dt, par) {
   
   dt
 }
-
-
-

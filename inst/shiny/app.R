@@ -125,6 +125,9 @@ ui <- fluidPage(
           ),
           br(),
           downloadButton("download_summary", "Download summary (CSV)")
+        ),
+        tabPanel(
+          "Wood Growth", plotOutput("wood_growth_plot", height = "500px")
         )
       )
     )
@@ -480,6 +483,52 @@ server <- function(input, output, session) {
         panel.background = element_rect(fill = NA, color = "black")
       )
   })
+
+  # -------------------------------------------------------
+  # Wood growth tab
+  # -------------------------------------------------------   
+  wood_growth <- reactive({
+    req(dt_reactive())
+    calc_woody_growth(dt_reactive(), par)
+  })
+
+  output$wood_growth_plot <- renderPlot({
+
+    df <- wood_growth()
+    req(nrow(df) > 0)
+
+    # reshape to long format
+    plot_dt <- melt(
+      df,
+      id.vars = c("cohort_id", "age"),
+      measure.vars = c("size", "wall"),
+      variable.name = "variable",
+      value.name = "value"
+    )
+
+    ggplot(plot_dt, aes(x = age, y = value, group = cohort_id)) +
+      geom_line(alpha = 0.4) +
+      facet_wrap(
+        ~ variable,
+        scales = "free_y",
+        labeller = as_labeller(
+          c(
+            size = "Cell size (µm)",
+            wall = "Cell wall thickness (µm)"
+          )
+        )
+      ) +
+      labs(
+        x = "Age (GDD)",
+        y = NULL
+      ) +
+      theme_minimal() +
+      theme(
+        strip.text = element_text(face = "bold"),
+        panel.grid.minor = element_blank()
+      )
+  })
+
  
   # -------------------------------------------------------
   # Raster + lat lon 
