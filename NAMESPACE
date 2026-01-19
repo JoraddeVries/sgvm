@@ -4,6 +4,7 @@ export(get_data)
 export(interpolate_data)
 export(set_environment)
 export(calc_assimilation)
+export(calc_woody_growth)
 
 # Import packages used internally
 import(shiny)
