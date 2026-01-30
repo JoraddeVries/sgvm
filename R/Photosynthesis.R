@@ -33,6 +33,16 @@ CalcAnC3 = function(gm, gs0, fvpd, gb, x2, x1, gamma_star, Rd, Ca) {
   return (A)
 }
 
+#solution of cubic equation when gs is known
+CalcAnC3_gs = function(gm, gs, gb, x2, x1, gamma_star, Rd, Ca) {
+  p = 1/gs + 1/gm + 1/gb
+  q = -p * (x1 - Rd) - (Ca + x2)
+  r = (Ca - gamma_star) * x1 - (Ca + x2) * Rd
+  A = (-q - sqrt(q^2 - 4*p*r)) / (2*p*r)
+
+  return(A)
+}
+
 # Calculation of internal CO2 concentration
 CalcCi = function(gs0, An, Ca, Ci_star, Rd, fvpd) {
   
@@ -44,8 +54,8 @@ CalcCi = function(gs0, An, Ca, Ci_star, Rd, fvpd) {
 }
 
 # Calculate net photosynthesis without water limitation
-calcA = function(PPFD, Ca, TleafC, VP, O2, LN) {
-  #(PPFD = umol/m2/s Ca = ppm TleafC = dC VP = Pa O2 = ppm LN = gN/m2leaf
+calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
+  #(PPFD = umol/m2/s Ca = ppm TleafC = dC VP = Pa O2 = ppm LN = gN/m2leaf, gs = mol/m2/s
   with(as.list(c(constants, parametersC3)),{
     
     # Calculate values of parameters at leafN
@@ -92,13 +102,17 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN) {
     # Limitation by Rubisco
     x1_c = Vcmax
     x2_c = Kmc*(1 + O2/Kmo)
-    Ac = CalcAnC3(gm, gs0, fvpd, gb, x2_c, x1_c, gamma_star, Rd, Ca)
+    Ac = ifelse(gs==NA,
+              CalcAnC3(gm, gs0, fvpd, gb, x2_c, x1_c, gamma_star, Rd, Ca),
+              CalcAnC3_gs(gm, gs, gb, x2_c, x1_c, gamma_star, Rd, Ca))
     
     # Limitation by electron transport
     J = (k2ll*PPFD + Jmax - sqrt((k2ll*PPFD + Jmax)**2 - 4*theta*k2ll*Jmax*PPFD))/(2*theta)
     x1_j = (J/4.0)*(1 - fpseudo/(1 - fcyc))
     x2_j = 2*gamma_star
-    Aj = CalcAnC3(gm, gs0, fvpd, gb, x2_j, x1_j, gamma_star, Rd, Ca)
+    Aj = ifelse(gs==NA,
+              CalcAnC3(gm, gs0, fvpd, gb, x2_j, x1_j, gamma_star, Rd, Ca),
+              CalcAnC3_gs(gm, gs, gb, x2_j, x1_j, gamma_star, Rd, Ca))
     
     # Limitation by TPU
     x1_p = 3.0*TPU
@@ -112,7 +126,7 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN) {
     Ag = An + Rd
     Ci = CalcCi(gs0, An, Ca, Ci_star, Rd, fvpd)
     Cc = Ci - An/gm
-    gs = gs0 + ((An + Rd)/(Ci - Ci_star))*fvpd
+    gs = ifelse(gs==NA, gs0 + ((An + Rd)/(Ci - Ci_star))*fvpd, gs) #(mol/m2/s)
     gsw = gs*1.6 #stomatal conductance to water (mol/m2/s)
     gbw = gb*1.6 #boundary layer conductance conductance to water (mol/m2/s)
     
@@ -127,7 +141,7 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN) {
     Tr = 1 / (1 / gsw + 1 / gbw) * vpd / (Pair*1e3) #Transpiration in (mol/m^2/s)
     Tr_L = Tr * 18.015 * 1e-3 # convert from mol to L
     
-    return (list(An=An, Tr=Tr_L)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
+    return (list(An=An, Tr=Tr_L, gs=gs)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
   })
 }
 

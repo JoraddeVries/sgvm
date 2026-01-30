@@ -12,18 +12,9 @@ library(ggplot2)
 library(cowplot)
 
 # -------------------------------------------------------
-# Default model parameters
+# Set model parameters
 # -------------------------------------------------------
-par_default <- list(
-  n_steps = 6,
-  n_cohorts = 3,
-  latitude = 60,
-  longitude = 100,
-  Ca = 400,
-  Wmax = 300,
-  Winit = 0.1,
-  Sinit = 80
-)
+par <- get_parameters()
 
 # fraction of LAI divided over the different cohorts
 cohort_default <- data.table(
@@ -55,9 +46,9 @@ ui <- fluidPage(
         ),
         selected = "historic"
       ),
-      sliderInput("latitude", "Latitude", min = -90, max = 90, value = par_default$latitude, step = 1),
-      sliderInput("longitude", "Longitude", min = -180, max = 180, value = par_default$longitude, step = 1),
-      sliderInput("Ca", "Atmospheric CO2", min = 200, max = 1200, value = par_default$Ca, step = 10),
+      sliderInput("latitude", "Latitude (deg)", min = -90, max = 90, value = par$latitude, step = 1),
+      sliderInput("longitude", "Longitude (deg)", min = -180, max = 180, value = par$longitude, step = 1),
+      sliderInput("Ca", "Atmospheric CO2 (ppm)", min = 200, max = 1200, value = par$Ca, step = 10),
       sliderInput(
         inputId = "lai_range",
         label   = "Leaf-on period (day of year)",
@@ -73,15 +64,15 @@ ui <- fluidPage(
       br(), br(),
       tags$h4("Initial Conditions"),
       
-      sliderInput("Wmax", "Maximum Soil Water Content (L/m²)",min = 50, max = 800, value = par_default$Wmax, step = 10),
-      sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = par_default$Winit, step = 0.1),
-      sliderInput("Sinit", "Initial Snowpack (L water/m²)", min = 0, max = 100, value = par_default$Sinit, step = 5),
+      sliderInput("Wmax", "Maximum Soil Water Content (L/m²)",min = 50, max = 800, value = par$Wmax, step = 10),
+      sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = par$Winit, step = 0.1),
+      sliderInput("Sinit", "Initial Snowpack (L water/m²)", min = 0, max = 100, value = par$Sinit, step = 5),
       
       br(),
       actionButton("run_btn", "Run Model", class = "btn-primary"),
       
       br(), br(),
-      downloadButton("download_output", "Save Model Output")
+      downloadButton("download_output", "Save Full Model Output")
     ),
     
     # -------------------------------------------------------
@@ -91,7 +82,7 @@ ui <- fluidPage(
       width = 8,
       tabsetPanel(
         
-        tabPanel("Input Table", 
+        tabPanel("Input table", 
           DTOutput("clim_table"),
           br(),
           uiOutput("cell_editor"),
@@ -109,8 +100,11 @@ ui <- fluidPage(
           ),
         ),
         tabPanel("Map", plotOutput("clim_map", height = "500px")),
-        tabPanel("Assimilation", plotOutput("assim_plot", height = "500px")),
-        tabPanel("Water", plotOutput("water_plot", height = "500px")),
+        tabPanel("PP output", plotOutput("assim_plot", height = "500px")),
+        tabPanel("Water output", plotOutput("water_plot", height = "500px")),
+        tabPanel(
+          "Woody growth output", plotOutput("wood_growth_plot", height = "500px")
+        ),
         tabPanel("Output Summary",
           br(),
           DTOutput("monthly_summary"),
@@ -125,10 +119,7 @@ ui <- fluidPage(
           ),
           br(),
           downloadButton("download_summary", "Download summary (CSV)")
-        ),
-        tabPanel(
-          "Wood Growth", plotOutput("wood_growth_plot", height = "500px")
-        )
+        )        
       )
     )
   )
@@ -153,10 +144,10 @@ server <- function(input, output, session) {
     # Load a representative WorldClim raster to plot (example: January tavg)
     r <- rast(
       system.file(
-        paste0("data/worldclim/",input$climate_scenario,"/10m/wc2.1_",input$climate_scenario,"_10m_tmax.tif"),
+        paste0("data/LAI_AnnualMaxMean_2011_2020_0.5deg.tif"),
         package = "SGVM"
       )
-    )[[current_month_str()]]
+    )[[1]]
     
     clim_raster(r)
   })
@@ -293,18 +284,6 @@ server <- function(input, output, session) {
   # -------------------------------------------------------
   model_results <- eventReactive(input$run_btn, {
     
-    # --- Build parameter set ---
-    par <- list(
-      n_steps = par_default$n_steps,
-      n_cohorts = par_default$n_cohorts,
-      latitude = input$latitude,
-      longitude = input$longitude,
-      Ca = input$Ca,
-      Wmax = input$Wmax,
-      Winit = input$Winit,
-      Sinit = input$Sinit
-    )
-    
     # --- Build base dt ---
     dt <- data.table(
       doy = rep(1:365, each = par$n_cohorts * par$n_steps),
@@ -349,8 +328,9 @@ server <- function(input, output, session) {
     assim_month <- dt[, .(
       LAI        = mean(.SD$lai_tot,    na.rm = TRUE),
       biomass    = mean(biomass,   na.rm = TRUE),
-      Assim_pot  = sum(Assim_pot,  na.rm = TRUE),
-      Assim_wlim = sum(Assim_wlim, na.rm = TRUE),
+      RM         = sum(rm,  na.rm = TRUE),
+      TR         = sum(Uptake,  na.rm = TRUE),
+      GPP        = sum(Assim_wlim, na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
     ), by = month]
     
@@ -372,8 +352,9 @@ server <- function(input, output, session) {
       tmax       = mean(tmax,      na.rm = TRUE),
       LAI        = mean(LAI,       na.rm = TRUE),
       biomass    = mean(biomass,   na.rm = TRUE),
-      Assim_pot  = sum(Assim_pot,  na.rm = TRUE),
-      Assim_wlim = sum(Assim_wlim, na.rm = TRUE),
+      RM         = sum(RM,         na.rm = TRUE),
+      TR         = sum(TR,         na.rm = TRUE),
+      GPP        = sum(GPP,        na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
     )]
     
@@ -410,16 +391,16 @@ server <- function(input, output, session) {
     req(dt)
     
     dt_day <- dt[, .(
-      Assim_pot_day = sum(Assim_pot),
-      Assim_wlim_day = sum(Assim_wlim),
-      NPP_day = sum(NPP)
+      Rm = sum(rm),
+      GPP = sum(Assim_wlim),
+      NPP = sum(NPP)
     ), by = doy]
     
     # Reshape to long format for easy legend handling
     dt_long <- melt(
       dt_day,
       id.vars = "doy",
-      measure.vars = c("Assim_pot_day", "Assim_wlim_day", "NPP_day"),
+      measure.vars = c("GPP", "Rm", "NPP"),
       variable.name = "Type",
       value.name = "value"
     )
@@ -427,13 +408,13 @@ server <- function(input, output, session) {
     ggplot(dt_long, aes(x = doy, y = value, color = Type)) +
       geom_line(linewidth = 1) +
       scale_color_manual(
-        values = c("Assim_pot_day" = "black", "Assim_wlim_day" = "blue", "NPP_day" = "red"),
-        labels = c("Potential assimilation", "Water-limited assimilation", "NPP")
+        values = c("GPP" = "blue", "Rm" = "red", "NPP" = "black"),
+        labels = c("GPP", "Rm", "NPP")
       ) +
       labs(
         x = "Day of Year",
-        y = "Daily Assimilation (g/m²)",
-        title = "Daily Canopy Assimilation",
+        y = "Carbon flux (g/m²)",
+        title = "Daily Primary Productivity",
         color = ""   # legend title
       ) +
       theme_cowplot() +
@@ -453,7 +434,7 @@ server <- function(input, output, session) {
     dt_water <- dt[, .(
       Water_mean = mean(Water),
       Snow_mean = mean(Snow),
-      Tr_mean = sum(Tr)
+      Tr_mean = sum(Tr) * 10 #increase value of transpiration for visualisation
     ), by = doy]
     
     # Reshape to long format for easy legend handling
@@ -469,7 +450,7 @@ server <- function(input, output, session) {
       geom_line(linewidth = 1) +
       scale_color_manual(
         values = c("Snow_mean" = "black", "Water_mean" = "blue", "Tr_mean" = "green"),
-        labels = c("Soil Water", "Snow", "Transpiration")
+        labels = c("Soil Water", "Snow", "Transpiration (x10)")
       ) +
       labs(
         x = "Day of Year",
@@ -541,7 +522,7 @@ server <- function(input, output, session) {
     
     plot(
       r,
-      main = paste0("WorldClim (tmax, month ",current_month_str(),")"),
+      main = paste0("Annual max LAI"),
       col = terrain.colors(100)
     )
     

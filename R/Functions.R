@@ -214,7 +214,7 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   # ----- Sunlit fraction -----
   dt[, f_sun := exp(-kdir * cumLAI_above)]
   
-  # --- Assimilation: sun and shade for each ROW (each cohort) ---
+  # --- Assimilation: sun leaves ---
   dt[, c("A_sun", "Tr_sun") := {
     res <- mapply(
       calcA,
@@ -224,14 +224,16 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
       VP    = vapr*1000,
       O2    = 210,
       LN    = 1,
+      gs    = ifelse(tod<0.5, NA, par$gs_md),
       SIMPLIFY = FALSE
     )
     
     .( sapply(res, `[[`, "An"),
-       sapply(res, `[[`, "Tr") )
+       sapply(res, `[[`, "Tr"),
+       sapply(res, `[[`, "gs") )
   }]
   
-  
+  # --- Assimilation: shade leaves ---
   dt[, c("A_shade", "Tr_shade") := {
     res <- mapply(
       calcA,
@@ -241,11 +243,13 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
       VP    = vapr*1000,
       O2    = 210,
       LN    = 1,
+      gs    = ifelse(tod<0.5, NA, par$gs_md),
       SIMPLIFY = FALSE
     )
     
     .( sapply(res, `[[`, "An"),
-       sapply(res, `[[`, "Tr") )
+       sapply(res, `[[`, "Tr"),
+       sapply(res, `[[`, "gs") )
   }]
   
   # Potential transpiration
@@ -255,9 +259,10 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
         * time_step
   ]
   
+  # calculate the water balance
   dt <- calc_water(dt, par)
   
-  # --- Total assimilation per cohort (g CO2 m-2 ground per day) ---
+  # --- Total assimilation per cohort (g CO2 m-2 ground day-1) ---
   dt[, Assim_pot :=
        (A_sun  * LAI * f_sun +
           A_shade * LAI * (1 - f_sun))
@@ -265,12 +270,16 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   ]
   
   dt[, Assim_wlim := Assim_pot * f_Tr] # gC / m2
+
+  #get first tod value to add the night's respiration to the first day
+  first_tod <- dt$tod[1]
   
-  dt[, rm := 0.0005*1.7**((Temp-15)/10) * time_step/86400] # gC/gC per timestep
+  dt[, rm := biomass * par$fHW * par$rm15*par$rmQ10**((Temp-15)/10) * 
+        fifelse(tod == first_tod, time_step / 86400 + (24-dayLength) * 3600, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
   
   dt[, NPP := {
-    net <- Assim_wlim - rm * biomass
-    ifelse(net > 0, net * 0.69, net) # * 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
+    net <- Assim_wlim - rm
+    ifelse(net > 0, net * par$ccBIO, net) # * 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
   }]
   
   return(dt)
@@ -291,6 +300,7 @@ calc_water <- function(dt, par) {
   # Preallocate
   f_Tr_vec   <- numeric(n_rows)
   Uptake_vec <- numeric(n_rows)
+  Leaching_vec <- numeric(n_rows)
   Water_vec  <- dt$Water   # shared bucket
   Snow_vec   <- dt$Snow
   
@@ -334,7 +344,9 @@ calc_water <- function(dt, par) {
     
     # compute Water and Snow in the next time step
     if (k < n_steps) {
-      Water_vec[ step_index[[k+1]] ] <- pmin(par$Wmax, pmax(0, W_now - tr_sum + rain_fall + snow_melt))
+      W_new = pmax(0, W_now + rain_fall + snow_melt - tr_sum)
+      Leaching_vec[ step_index[[k+1]] ] <- pmax(0, W_new - par$Wmax) # excess water leaches out
+      Water_vec[ step_index[[k+1]] ] <- pmin(par$Wmax, W_new)
       Snow_vec[ step_index[[k+1]] ] <- pmax(0, S_now + snow_fall - snow_melt)
     }
   }
@@ -344,6 +356,7 @@ calc_water <- function(dt, par) {
   dt[, Uptake := Uptake_vec]
   dt[, Water := Water_vec]
   dt[, Snow := Snow_vec]
+  dt[, Leaching := Leaching_vec]
   
   dt
 }
