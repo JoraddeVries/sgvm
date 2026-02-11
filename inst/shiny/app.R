@@ -128,7 +128,7 @@ ui <- fluidPage(
           textAreaInput(
             "summary_notes",
             label = NULL,
-            placeholder = "The output table contains 4 input variables (prec, tmin, tmax, biomass), two interpolated variables (tavg, lai), and 4 output variables (RM, TR, GPP, NPP)
+            placeholder = "The output table contains 4 input variables (prec, tmin, tmax, biomass), two interpolated variables (tavg, lai), and 4 output variables (RE, TR, GPP, NPP)
           Month 13 are the yearly sums/averages
           prec in mm/m2/month(year)
           tmin, tmax, and tavg in dC
