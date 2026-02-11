@@ -53,9 +53,11 @@ CalcCi = function(gs0, An, Ca, Ci_star, Rd, fvpd) {
   return (Ci)
 }
 
-# Calculate net photosynthesis without water limitation
+# Calculate net photosynthesis
 calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
   #(PPFD = umol/m2/s Ca = ppm TleafC = dC VP = Pa O2 = ppm LN = gN/m2leaf, gs = mol/m2/s
+  # If gs is provided, calculate photosynthesis using that gs
+  # otherwise, calculate photosynthesis in the absence of water limitation and calculate gs
   with(as.list(c(constants, parametersC3)),{
     
     # Calculate values of parameters at leafN
@@ -92,7 +94,7 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
     #heat capacit of air in MJ/m3/k
     cp = (air_heat_capacity*1e-6)
     #phychometric constant (Pa K-1)
-    y = cp*(Pair*1e3)/(L*0.622);
+    y = cp*(Pair*1e3)/(L*0.622)
     
     # Parameters for CO2 diffusion
     fvpd = max(1/(1/(a1 - b1*(vpd/1000)) - 1),0.0)
@@ -102,17 +104,17 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
     # Limitation by Rubisco
     x1_c = Vcmax
     x2_c = Kmc*(1 + O2/Kmo)
-    Ac = ifelse(gs==NA,
-              CalcAnC3(gm, gs0, fvpd, gb, x2_c, x1_c, gamma_star, Rd, Ca),
-              CalcAnC3_gs(gm, gs, gb, x2_c, x1_c, gamma_star, Rd, Ca))
+    Ac = CalcAnC3(gm, gs0, fvpd, gb, x2_c, x1_c, gamma_star, Rd, Ca)
+    Ac = ifelse(is.na(gs), Ac,
+              pmin(Ac, CalcAnC3_gs(gm, gs, gb, x2_c, x1_c, gamma_star, Rd, Ca)))
     
     # Limitation by electron transport
     J = (k2ll*PPFD + Jmax - sqrt((k2ll*PPFD + Jmax)**2 - 4*theta*k2ll*Jmax*PPFD))/(2*theta)
     x1_j = (J/4.0)*(1 - fpseudo/(1 - fcyc))
     x2_j = 2*gamma_star
-    Aj = ifelse(gs==NA,
-              CalcAnC3(gm, gs0, fvpd, gb, x2_j, x1_j, gamma_star, Rd, Ca),
-              CalcAnC3_gs(gm, gs, gb, x2_j, x1_j, gamma_star, Rd, Ca))
+    Aj = CalcAnC3(gm, gs0, fvpd, gb, x2_j, x1_j, gamma_star, Rd, Ca)
+    Aj = ifelse(is.na(gs), Aj,
+              pmin(Aj, CalcAnC3_gs(gm, gs, gb, x2_j, x1_j, gamma_star, Rd, Ca)))
     
     # Limitation by TPU
     x1_p = 3.0*TPU
@@ -126,7 +128,8 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
     Ag = An + Rd
     Ci = CalcCi(gs0, An, Ca, Ci_star, Rd, fvpd)
     Cc = Ci - An/gm
-    gs = ifelse(gs==NA, gs0 + ((An + Rd)/(Ci - Ci_star))*fvpd, gs) #(mol/m2/s)
+    gs_light = gs0 + ((An + Rd)/(Ci - Ci_star)) * fvpd #(mol/m2/s)
+    gs = ifelse(is.na(gs), gs_light, pmin(gs, gs_light))
     gsw = gs*1.6 #stomatal conductance to water (mol/m2/s)
     gbw = gb*1.6 #boundary layer conductance conductance to water (mol/m2/s)
     
@@ -142,6 +145,36 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
     Tr_L = Tr * 18.015 * 1e-3 # convert from mol to L
     
     return (list(An=An, Tr=Tr_L, gs=gs)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
+  })
+}
+
+# Calulate potential evapotranspiration using Priestly-Taylor
+calcPET = function(Irr, Temp, time){
+  #Irr in J/m2/s, Temp in C, time is the length of the time step in s
+  with(as.list(c(constants)),{
+    
+    # PT parameter 
+    a = 1.26
+
+    #conversion of Irr
+    Irr_MJ = Irr * 1e-6
+
+    #saturated vapour pressure as a function of temperature -> Tetens Equation (Pa/C)
+    c1 = 610.78
+    c2 = 17.269
+    c3 = 237.3
+    es = c1*c2*c3 * exp(c2*Temp/(c3+Temp))/(c3+Temp)**2
+    #Volumetric Latent heat of vaporisation of water in MJ/m-3
+    labda = 2453
+    #heat capacit of air in MJ/m3/K
+    cp = air_heat_capacity*1e-6
+    #phychometric constant (Pa K-1)
+    y = cp*(Pair*1e3)/(labda*0.622)
+
+    #Potential evapotranspiration in mm time step-1
+    PET = a * es * Irr_MJ / (labda * (es + y)) * 1000 * time
+
+    return(list(PET=PET))
   })
 }
 

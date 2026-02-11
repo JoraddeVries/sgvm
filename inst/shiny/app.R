@@ -14,11 +14,10 @@ library(cowplot)
 # -------------------------------------------------------
 # Set model parameters
 # -------------------------------------------------------
-par <- get_parameters()
 
 # fraction of LAI divided over the different cohorts
 cohort_default <- data.table(
-  LAI = c(0.33, 0.33, 0.33)
+  LAI = c(0.33, 0.33, 0.33,0)
 )
 
 # =======================================================
@@ -42,13 +41,25 @@ ui <- fluidPage(
         choices = c(
           "Historic 1970-2000" = "historic",
           "SSP1-2.6 2081–2100" = "UKESM_ssp126_2081-2100",
-          "SSP5-8.5 2081–2100" = "UKESM_ssp585_2081-2100"
+          "SSP5-3.7 2081–2100" = "UKESM_ssp370_2081-2100"
         ),
         selected = "historic"
       ),
-      sliderInput("latitude", "Latitude (deg)", min = -90, max = 90, value = par$latitude, step = 1),
-      sliderInput("longitude", "Longitude (deg)", min = -180, max = 180, value = par$longitude, step = 1),
-      sliderInput("Ca", "Atmospheric CO2 (ppm)", min = 200, max = 1200, value = par$Ca, step = 10),
+      sliderInput("Ca", "Atmospheric CO2 (ppm)", min = 200, max = 1200, value = 400, step = 10),
+
+      br(),
+      radioButtons(
+        inputId = "location",
+        label = NULL,
+        choices = c(
+          "Netherlands" = "ned",
+          "Canada" = "can",
+          "Brazil" = "bra"
+        ),
+        selected = "ned"
+      ),
+      sliderInput("latitude", "Latitude (deg)", min = -90, max = 90, value = 52, step = 1),
+      sliderInput("longitude", "Longitude (deg)", min = -180, max = 180, value = 6, step = 1),
       sliderInput(
         inputId = "lai_range",
         label   = "Leaf-on period (day of year)",
@@ -59,16 +70,15 @@ ui <- fluidPage(
         sep     = ""           # no thousands separator
       ),
       
+      br(),
+      tags$h4("Initial Conditions"),
+      sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = 1, step = 0.1),
+      sliderInput("Sinit", "Initial Snowpack (L water/m²)", min = 0, max = 100, value = 0, step = 5),
+
+      br(),
       actionButton("load_data", "Load Climate and Vegetation Data", class = "btn-warning"),
       
       br(), br(),
-      tags$h4("Initial Conditions"),
-      
-      sliderInput("Wmax", "Maximum Soil Water Content (L/m²)",min = 50, max = 800, value = par$Wmax, step = 10),
-      sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = par$Winit, step = 0.1),
-      sliderInput("Sinit", "Initial Snowpack (L water/m²)", min = 0, max = 100, value = par$Sinit, step = 5),
-      
-      br(),
       actionButton("run_btn", "Run Model", class = "btn-primary"),
       
       br(), br(),
@@ -94,7 +104,12 @@ ui <- fluidPage(
           textAreaInput(
             "input_notes",
             label = NULL,
-            placeholder = "prec is precipitation in mm/m2/month\ntmin and tmax are daily minimum and maximum temperatures in dC\nvapr is water vapour pressure in kPa\nlai_tot is total leaf area index in m2 leaf area / m2 ground area\nbiomass is total vegetation biomass in g/m2",
+            placeholder = "prec is precipitation in mm/m2/month
+            srad is incoming solar radiation in kJ/m2/day
+            tmin and tmax are daily minimum and maximum temperatures in dC
+            vapr is water vapour pressure in kPa
+            lai_tot is total leaf area index in m2 leaf area / m2 ground area
+            biomass is total vegetation biomass in g/m2",
             width = "100%",
             height = "150px"
           ),
@@ -130,6 +145,9 @@ ui <- fluidPage(
 #                    SERVER
 # =======================================================
 server <- function(input, output, session) {
+
+  # initiate parameters
+  par <- reactiveVal(init_parameters())
   
   # Holds climate table (editable)
   clim_data <- reactiveVal(NULL)
@@ -138,6 +156,17 @@ server <- function(input, output, session) {
   
   # When "load data" is pressed:
   observeEvent(input$load_data, {
+
+    # update par
+    p <- par()
+    p$latitude  <- input$latitude
+    p$longitude <- input$longitude
+    p$Ca        <- input$Ca
+    p$Winit     <- input$Winit
+    p$Sinit     <- input$Sinit
+    par(p)
+
+    # load climate data
     w <- SGVM::get_data(input$latitude, input$longitude, input$climate_scenario)
     clim_data(w)
     
@@ -150,6 +179,64 @@ server <- function(input, output, session) {
     )[[1]]
     
     clim_raster(r)
+  })
+
+  # Update Ca slider when the climate scenario is changed
+  observeEvent(input$climate_scenario, {
+
+    new_Ca <- switch(input$climate_scenario,
+      "historic" = 400,
+      "UKESM_ssp126_2081-2100" = 450,
+      "UKESM_ssp370_2081-2100" = 850
+    )
+
+    updateSliderInput(
+      session,
+      "Ca",
+      value = new_Ca
+    )
+
+  })
+
+  # Update lat-lon and initial snowpack sliders when the location is changed
+  observeEvent(input$location, {
+
+    new_lat <- switch(input$location,
+      "ned" = 52,
+      "can" = 66,
+      "bra" = -2
+    )
+
+    new_lon <- switch(input$location,
+      "ned" = 6,
+      "can" = -138,
+      "bra" = -59
+    )
+
+    new_sinit <- switch(input$location,
+      "ned" = 0,
+      "can" = 50,
+      "bra" = 0
+    )
+
+    updateSliderInput(
+      session,
+      "latitude",
+      value = new_lat
+    )
+
+    updateSliderInput(
+      session,
+      "longitude",
+      value = new_lon
+    )
+
+    updateSliderInput(
+      session,
+      "Sinit",
+      value = new_sinit
+    )
+
   })
 
   # -------------------------------------------------------
@@ -286,9 +373,9 @@ server <- function(input, output, session) {
     
     # --- Build base dt ---
     dt <- data.table(
-      doy = rep(1:365, each = par$n_cohorts * par$n_steps),
-      tod = rep(1:par$n_steps, each = par$n_cohorts) / par$n_steps - 0.5/par$n_steps,
-      cohort = rep(1:par$n_cohorts, times = 365 * par$n_steps)
+      doy = rep(1:365, each = (par()$n_cohorts+1) * par()$n_steps),
+      tod = rep(1:par()$n_steps, each = par()$n_cohorts+1) / par()$n_steps - 0.5/par()$n_steps,
+      cohort = rep(1:(par()$n_cohorts+1), times = 365 * par()$n_steps)
     )
     
     # make sure the model runs also if the data wasn't loaded
@@ -328,7 +415,7 @@ server <- function(input, output, session) {
     assim_month <- dt[, .(
       LAI        = mean(.SD$lai_tot,    na.rm = TRUE),
       biomass    = mean(biomass,   na.rm = TRUE),
-      RM         = sum(rm,  na.rm = TRUE),
+      RM         = sum(re,  na.rm = TRUE),
       TR         = sum(Uptake,  na.rm = TRUE),
       GPP        = sum(Assim_wlim, na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
@@ -391,9 +478,9 @@ server <- function(input, output, session) {
     req(dt)
     
     dt_day <- dt[, .(
-      Rm = sum(rm),
-      GPP = sum(Assim_wlim),
-      NPP = sum(NPP)
+      Rm = sum(rm, na.rm = TRUE),
+      GPP = sum(Assim_wlim, na.rm = TRUE),
+      NPP = sum(NPP, na.rm = TRUE)
     ), by = doy]
     
     # Reshape to long format for easy legend handling
@@ -407,6 +494,7 @@ server <- function(input, output, session) {
     
     ggplot(dt_long, aes(x = doy, y = value, color = Type)) +
       geom_line(linewidth = 1) +
+      geom_hline(yintercept=0, linetype="dashed") +
       scale_color_manual(
         values = c("GPP" = "blue", "Rm" = "red", "NPP" = "black"),
         labels = c("GPP", "Rm", "NPP")

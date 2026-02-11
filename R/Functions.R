@@ -1,13 +1,9 @@
-
 set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
-
-  # Add month column to dt
-  dt[, month := ceiling(doy / 30.5)]  # approximate month from doy
-  
+ 
   # Interpolate input data
-  input_daily <- interpolate_data(input_data)
+  input_daily <- interpolate_data(input_data, par()$INTER)
   
-  # Join monthly precipitation
+  # Join monthly climate variables
   dt <- merge(dt, input_daily, by = "doy", all.x = TRUE, sort = FALSE)
   
   # Row-wise calling of clear_sky
@@ -15,7 +11,7 @@ set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
     function(lat, doy, tod) {
       clear_sky(lat = (lat/180*pi), DOY = doy, f = tod)
     },
-    par$latitude, dt$doy, dt$tod,
+    par()$latitude, dt$doy, dt$tod,
     SIMPLIFY = FALSE
   )
   
@@ -28,14 +24,44 @@ set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
          sapply(cs, `[[`, "phi"),
          sapply(cs, `[[`, "dayLength"))
   ]
+
+  # set timestep length in seconds
+  dt[, time_step := dayLength/par()$n_steps * 3600]
   
+  # calculate the fraction incoming radiation. Unit conversions so irradiance is expressed in kJ/m2/day
+  # interpolated, or monthly
+  if(par()$INTER) {
+    # 1. Monthly aggregated values
+    monthly <- dt[, .(
+      fIrr_month = mean(srad) /
+        (sum(Ig * time_step / 1000, na.rm = TRUE) /
+        30.5 / (par()$n_cohorts + 1))
+    ), by = month]
+
+    # 2. Mid-month doy for interpolation
+    monthly[, doy_mid := c(15, 45, 74, 105, 135, 166,
+                          196, 227, 258, 288, 319, 349)]
+
+    # 3. Interpolate to daily (and therefore to all tod rows)
+    dt[, fIrr := approx(
+            x = monthly$doy_mid,
+            y = monthly$fIrr_month,
+            xout = doy,
+            rule = 2
+          )$y]
+  } else {
+    dt[, fIrr := mean(srad) /
+          (sum(Ig * time_step / 1000, na.rm = TRUE) /
+           30.5 / (par()$n_cohorts + 1)),
+   by = month]
+  }
+
   # Row-wise call to cloudy_sky
   cls <- mapply(
-    function(Ig, lat, doy, tod) {
-      cloudy_sky(Ig = Ig * (1-cloud_cover), lat = (lat/180*pi), DOY = doy, f = tod)
+    function(Ig, fIrr, lat, doy, tod) {
+      cloudy_sky(Ig = Ig * fIrr, lat = (lat/180*pi), DOY = doy, f = tod)
     },
-    sapply(cs, `[[`, "Ig"),  # use clear-sky Ig as input
-    par$latitude, dt$doy, dt$tod,
+    dt$Ig, dt$fIrr, par()$latitude, dt$doy, dt$tod,
     SIMPLIFY = FALSE
   )
   
@@ -49,31 +75,21 @@ set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
          sapply(cls, `[[`, "dayLength"))
   ]
   
-  # set timestep length in seconds
-  dt[, time_step := dayLength/par$n_steps * 3600]
-  
-  # Get conversion factors
-  cdir <- waveband_conversion(Itype = "direct",  waveband = "PAR", mode = "flux")
-  cdif <- waveband_conversion(Itype = "diffuse", waveband = "PAR", mode = "flux")
-  
-  # Add PAR columns to the data.table
-  dt[, PAR_dir := Idir * cdir]
-  dt[, PAR_dif := Idif * cdif]
-  
-  # Optionally, total PAR
-  dt[, PAR_total := PAR_dir + PAR_dif]
+  # Add PAR conversion factors to the data.table
+  dt[, cdir := waveband_conversion(Itype = "direct",  waveband = "PAR", mode = "flux")]
+  dt[, cdif := waveband_conversion(Itype = "diffuse", waveband = "PAR", mode = "flux")]
   
   # atmospheric COS concentration in ppm
-  dt[, Ca := par$Ca]
+  dt[, Ca := par()$Ca]
   
   # air temperature
   dt[, Temp := tmin + (tmax - tmin) * sin((pi/2) * (tod / 0.6))]
   
   # Soil Water content
-  dt[, Water := par$Wmax * par$Winit]
+  dt[, Water := par()$Wmax * par()$Winit]
   
   # Snow
-  dt[, Snow := par$Sinit]
+  dt[, Snow := par()$Sinit]
 }
 
 get_data <- function(lat, lon, data) {
@@ -152,7 +168,7 @@ get_data <- function(lat, lon, data) {
   return(dt[])
 }
 
-interpolate_data <- function(dt_month) {
+interpolate_data <- function(dt_month, INTER) {
   
   # Ensure df_month is data.table
   dt_month <- as.data.table(dt_month)
@@ -161,15 +177,17 @@ interpolate_data <- function(dt_month) {
   month_doy <- c(15, 45, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349)
   
   # Prepare output data.table
-  dt_daily <- data.table(
-    doy = 1:365
-  )
+  dt_daily <- data.table(doy = 1:365)
+  dt_daily[, month := ceiling(doy / 30.5)]
   
   # Climate variable names
-  vars <- c("prec","srad","tmin","tmax","tavg","vapr","wind","lai_tot","biomass")
+  vars <- c("prec","srad","tmin","tmax","vapr","lai_tot","biomass")
   
   # Loop through variables and interpolate
   for (col in vars) {
+    if (INTER) {
+
+    # --- Interpolated version ---
     dt_daily[, (col) :=
                approx(
                  x = month_doy,
@@ -178,6 +196,14 @@ interpolate_data <- function(dt_month) {
                  rule = 2
                )$y
     ]
+
+  } else {
+
+    # --- Monthly constant version ---
+    dt_daily[, (col) :=
+               dt_month[[col]][month]
+    ]
+  }
   }
   
   return(dt_daily)
@@ -204,8 +230,8 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   dt[, Idif_in := Idif * exp(-kdif * cumLAI_above)]
   
   # ----- Light exiting each cohort -----
-  dt[, Idir_out := Idir * exp(-kdir * cumLAI)]
-  dt[, Idif_out := Idif * exp(-kdif * cumLAI)]
+  dt[, Idir_out := ifelse(dt$cohort>par()$n_cohorts, 0, Idir * exp(-kdir * cumLAI))]
+  dt[, Idif_out := ifelse(dt$cohort>par()$n_cohorts, 0, Idif * exp(-kdir * cumLAI))]
   
   # ----- Light intercepted -----
   dt[, intercepted_dir := Idir_in - Idir_out]
@@ -215,16 +241,16 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   dt[, f_sun := exp(-kdir * cumLAI_above)]
   
   # --- Assimilation: sun leaves ---
-  dt[, c("A_sun", "Tr_sun") := {
+  dt[dt$cohort<=par()$n_cohorts, c("A_sun", "Tr_sun", "gs") := {
     res <- mapply(
       calcA,
-      PPFD  = intercepted_dir + intercepted_dif,
+      PPFD  = intercepted_dir*cdir + intercepted_dif*cdif,
       Ca    = Ca,
       TleafC= Temp,
       VP    = vapr*1000,
       O2    = 210,
       LN    = 1,
-      gs    = ifelse(tod<0.5, NA, par$gs_md),
+      gs    = ifelse(tod<par()$st_closure, NA, par()$gs_md),
       SIMPLIFY = FALSE
     )
     
@@ -234,16 +260,16 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   }]
   
   # --- Assimilation: shade leaves ---
-  dt[, c("A_shade", "Tr_shade") := {
+  dt[dt$cohort<=par()$n_cohorts, c("A_shade", "Tr_shade", "gs") := {
     res <- mapply(
       calcA,
-      PPFD  = intercepted_dif,
+      PPFD  = intercepted_dif*cdif,
       Ca    = Ca,
       TleafC= Temp,
       VP    = vapr*1000,
       O2    = 210,
       LN    = 1,
-      gs    = ifelse(tod<0.5, NA, par$gs_md),
+      gs    = ifelse(tod<par()$st_closure, NA, par()$gs_md),
       SIMPLIFY = FALSE
     )
     
@@ -251,36 +277,52 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
        sapply(res, `[[`, "Tr"),
        sapply(res, `[[`, "gs") )
   }]
-  
-  # Potential transpiration
-  dt[,Tr := 
-       (Tr_sun  * LAI * f_sun +
-        Tr_shade * LAI * (1 - f_sun)) 
-        * time_step
-  ]
-  
-  # calculate the water balance
-  dt <- calc_water(dt, par)
-  
-  # --- Total assimilation per cohort (g CO2 m-2 ground day-1) ---
+
+  # --- Potential assimilation per cohort (g CO2 m-2 ground day-1) ---
   dt[, Assim_pot :=
        (A_sun  * LAI * f_sun +
           A_shade * LAI * (1 - f_sun))
           * time_step * 1e-6 * 44.0095 #convert from umol/m2 ground/s to g/m2 ground/timestep
   ]
+  # Potential transpiration in L/m2
+  dt[dt$cohort<=par()$n_cohorts, Tr := 
+       (Tr_sun  * LAI * f_sun +
+        Tr_shade * LAI * (1 - f_sun)) 
+        * time_step
+  ]
+
+  # The last cohort represents the undergrowth and soil, from which water transpires and evaporates, 
+  # calculated using the Priestly Taylor equation, a simplified version of Pennman Monteith
+  dt[dt$cohort>par()$n_cohorts, Tr := {
+    res <- mapply(
+      calcPET,
+      Irr  = intercepted_dir + intercepted_dif, #Note that there is no conversion here, this is on purpose!
+      Temp  = Temp,
+      time = time_step,
+      SIMPLIFY = FALSE
+    )
+    .( sapply(res, `[[`, "PET") )
+  }]
   
+  # calculate the water balance
+  dt <- calc_water(dt, par)
+  
+  # calculate GPP
   dt[, Assim_wlim := Assim_pot * f_Tr] # gC / m2
 
   #get first tod value to add the night's respiration to the first day
   first_tod <- dt$tod[1]
   
-  dt[, rm := biomass * par$fHW * par$rm15*par$rmQ10**((Temp-15)/10) * 
-        fifelse(tod == first_tod, time_step / 86400 + (24-dayLength) * 3600, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
+  #calculate maintenance respiration
+  dt[, rm := biomass * LAI/lai_tot # divide the respiration costs over the cohorts based on LAI
+        * par()$fHW * par()$rm15*par()$rmQ10**((Temp-15)/10) # maintenance respiration rate based on temperature
+        * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
   
-  dt[, NPP := {
-    net <- Assim_wlim - rm
-    ifelse(net > 0, net * par$ccBIO, net) # * 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
-  }]
+  #calculate total ecosystem respiration = 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
+  dt[, re := rm + pmax(0, (Assim_wlim - rm)) * par()$ccBIO]
+  
+  #calculate net primary productivity
+  dt[, NPP := Assim_wlim - re]
   
   return(dt)
 }
@@ -315,19 +357,19 @@ calc_water <- function(dt, par) {
     idx   <- step_index[[k]]
     W_now <- Water_vec[idx[1]]
     S_now  <- Snow_vec[idx[1]]
-    tr_sum <- sum(dt$Tr[idx])
+    tr_sum <- sum(dt$Tr[dt$doy == steps$doy[k] & dt$tod == steps$tod[k]])
     temp = dt$Temp[idx[1]]
     snow_fall = 0
     rain_fall = 0
     
-    #Let's assume that rain only falls at night, so at the lowest value of tod
-    if(steps$tod[k] == steps$tod[1]) {
+    #Let's assume that rain only falls once a week, at nigh, so at the lowest value of tod
+    if(steps$doy[k]%%par()$rain_freq == 0 && steps$tod[k] == steps$tod[1]) {
       if(temp>0) {
         # precipitation falls in the form of water, corrected for timestep, note that precipitation data is /month
-        rain_fall <- dt$prec[idx[1]] * 86400/2635200#* dt$time_step[idx[1]] / 2635200
+        rain_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200#* dt$time_step[idx[1]] / 2635200
       } else {
         # precipitation falls in the form of snow, corrected for timestep, note that precipitation data is /month
-        snow_fall <- dt$prec[idx[1]] * 86400/2635200#* dt$time_step[idx[1]] / 2635200
+        snow_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200#* dt$time_step[idx[1]] / 2635200
       }
     }
     
@@ -341,19 +383,19 @@ calc_water <- function(dt, par) {
     # store
     f_Tr_vec[idx]   <- f_tr
     Uptake_vec[idx] <- uptake
-    
+
     # compute Water and Snow in the next time step
     if (k < n_steps) {
       W_new = pmax(0, W_now + rain_fall + snow_melt - tr_sum)
-      Leaching_vec[ step_index[[k+1]] ] <- pmax(0, W_new - par$Wmax) # excess water leaches out
-      Water_vec[ step_index[[k+1]] ] <- pmin(par$Wmax, W_new)
+      Leaching_vec[ step_index[[k]] ] <- pmax(0, W_new - par()$Wmax) # excess water leaches out
+      Water_vec[ step_index[[k+1]] ] <- pmin(par()$Wmax, W_new)
       Snow_vec[ step_index[[k+1]] ] <- pmax(0, S_now + snow_fall - snow_melt)
     }
   }
   
   # Write back
   dt[, f_Tr := f_Tr_vec]
-  dt[, Uptake := Uptake_vec]
+  dt[, Uptake := Tr * f_Tr_vec]
   dt[, Water := Water_vec]
   dt[, Snow := Snow_vec]
   dt[, Leaching := Leaching_vec]
