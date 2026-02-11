@@ -17,7 +17,7 @@ library(cowplot)
 
 # fraction of LAI divided over the different cohorts
 cohort_default <- data.table(
-  LAI = c(0.33, 0.33, 0.33,0)
+  lai_coh = c(0.33, 0.33, 0.33,0)
 )
 
 # =======================================================
@@ -97,7 +97,7 @@ ui <- fluidPage(
           br(),
           uiOutput("cell_editor"),
           br(),
-          selectInput("adjust_col", "Change all values of variable:", choices = c("prec", "tmin", "tmax", "vapr","lai_tot","biomass")),
+          selectInput("adjust_col", "Change all values of variable:", choices = c("prec", "tmin", "tmax", "vapr","lai","biomass")),
           numericInput("adjust_val", "by:", value = 0, step = 0.1),
           actionButton("adjust_btn", "Apply change", class = "btn-primary"),
           tags$h4("Notes"),
@@ -108,7 +108,7 @@ ui <- fluidPage(
             srad is incoming solar radiation in kJ/m2/day
             tmin and tmax are daily minimum and maximum temperatures in dC
             vapr is water vapour pressure in kPa
-            lai_tot is total leaf area index in m2 leaf area / m2 ground area
+            lai is leaf area index in m2 leaf area / m2 ground area
             biomass is total vegetation biomass in g/m2",
             width = "100%",
             height = "150px"
@@ -128,7 +128,16 @@ ui <- fluidPage(
           textAreaInput(
             "summary_notes",
             label = NULL,
-            placeholder = "Month 13 are the yearly sums/averages\nprec in mm/m2/month(year)\ntmin and tmax in dC\nAssim_pot in gC/m2/month(year)\nAssim_wlim in gC/m2/month(year)\nNPP in gBiomass/m2/month(year)",
+            placeholder = "The output table contains 4 input variables (prec, tmin, tmax, biomass), two interpolated variables (tavg, lai), and 4 output variables (RM, TR, GPP, NPP)
+          Month 13 are the yearly sums/averages
+          prec in mm/m2/month(year)
+          tmin, tmax, and tavg in dC
+          biomass in g
+          lai in m2 leaf area / m2 ground area
+          RE is respiration (maintenance + growth) in gC/month(year)
+          TR is transpiration in L/month(year)
+          GPP is gtoss primary productivity in gC/m2/month(year)
+          NPP is net primary productivity (GPP - RE) in gBiomass/m2/month(year)",
             width = "100%",
             height = "150px"
           ),
@@ -284,7 +293,7 @@ server <- function(input, output, session) {
 
     colname <- names(dt)[col]
 
-    editable_cols <- c("prec", "tmin", "tmax", "vapr", "lai_tot", "biomass")
+    editable_cols <- c("prec", "tmin", "tmax", "vapr", "lai", "biomass")
 
     # Non-editable column → show message instead of error
     if (!colname %in% editable_cols) {
@@ -339,7 +348,7 @@ server <- function(input, output, session) {
     if (is.na(val)) return()
 
     # Enforce non-negativity
-    if (colname %in% c("prec", "vapr", "lai_tot", "biomass")) {
+    if (colname %in% c("prec", "vapr", "lai", "biomass")) {
       val <- max(0, val)
     }
 
@@ -357,7 +366,7 @@ server <- function(input, output, session) {
     df <- clim_data()
     
     if (col %in% names(df)) {
-      if (col %in% c("prec", "vapr", "lai_tot", "biomass")) { # precipitation and vp can't become negative
+      if (col %in% c("prec", "vapr", "lai", "biomass")) { # precipitation and vp can't become negative
         df[[col]] <- pmax(0, as.numeric(df[[col]]) + val)
       } else {                          #temperature can become negative
         df[[col]] <- df[[col]] + val 
@@ -389,7 +398,7 @@ server <- function(input, output, session) {
 
     # modify lai based on phenology input
     dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
-    dt[, LAI := cohort_default$LAI[cohort] * lai_tot * phenology]
+    dt[, lai_coh := cohort_default$lai_coh[cohort] * lai * phenology]
 
     # calculate assimilation
     dt <- SGVM::calc_assimilation(dt, par)
@@ -412,10 +421,10 @@ server <- function(input, output, session) {
     dt[month > 12, month := 12]
     
     # --- Assimilation & NPP summaries ---
-    assim_month <- dt[, .(
-      LAI        = mean(.SD$lai_tot,    na.rm = TRUE),
-      biomass    = mean(biomass,   na.rm = TRUE),
-      RM         = sum(re,  na.rm = TRUE),
+    monthly <- dt[, .(
+      tavg        = mean(.SD$Temp,    na.rm = TRUE),
+      lai        = mean(.SD$lai,    na.rm = TRUE),
+      RE         = sum(re,  na.rm = TRUE),
       TR         = sum(Uptake,  na.rm = TRUE),
       GPP        = sum(Assim_wlim, na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
@@ -425,11 +434,12 @@ server <- function(input, output, session) {
     clim_month <- clim[, .(
       prec = sum(prec, na.rm = TRUE),
       tmin = mean(tmin, na.rm = TRUE),
-      tmax = mean(tmax, na.rm = TRUE)
+      tmax = mean(tmax, na.rm = TRUE),
+      biomass = mean(biomass,   na.rm = TRUE)
     ), by = month]
     
     # --- Merge ---
-    summary <- merge(clim_month, assim_month, by = "month", all = TRUE)
+    summary <- merge(clim_month, monthly, by = "month", all = TRUE)
     
     # --- Yearly row (month 13) ---
     yearly <- summary[, .(
@@ -437,9 +447,10 @@ server <- function(input, output, session) {
       prec       = sum(prec,       na.rm = TRUE),
       tmin       = mean(tmin,      na.rm = TRUE),
       tmax       = mean(tmax,      na.rm = TRUE),
-      LAI        = mean(LAI,       na.rm = TRUE),
       biomass    = mean(biomass,   na.rm = TRUE),
-      RM         = sum(RM,         na.rm = TRUE),
+      tavg       = mean(tavg,      na.rm = TRUE),
+      lai        = mean(lai,       na.rm = TRUE),
+      RE         = sum(RE,         na.rm = TRUE),
       TR         = sum(TR,         na.rm = TRUE),
       GPP        = sum(GPP,        na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)

@@ -94,7 +94,7 @@ set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
 
 get_data <- function(lat, lon, data) {
   
-  vars <- c("prec","srad","tmin","tmax","vapr","lai_tot")
+  vars <- c("prec","srad","tmin","tmax","vapr","lai")
   
   # initialise output
   dt <- data.table(
@@ -105,7 +105,7 @@ get_data <- function(lat, lon, data) {
   for (v in vars) {
     dt[, (v) := NA_real_]
 
-    path <- if(v == "lai_tot") {
+    path <- if(v == "lai") {
       "data/LAI_MonthlyMean_2011_2020_0.5deg.tif"
     } else {
       paste0("data/worldclim/",data,"/10m/wc2.1_",data,"_10m_", v, ".tif")
@@ -181,7 +181,7 @@ interpolate_data <- function(dt_month, INTER) {
   dt_daily[, month := ceiling(doy / 30.5)]
   
   # Climate variable names
-  vars <- c("prec","srad","tmin","tmax","vapr","lai_tot","biomass")
+  vars <- c("prec","srad","tmin","tmax","vapr","lai","biomass")
   
   # Loop through variables and interpolate
   for (col in vars) {
@@ -219,7 +219,7 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   setorder(dt, doy, tod, cohort)
   
   # ----- Cumulative LAI within day -----
-  dt[, cumLAI := cumsum(LAI), by = .(doy,tod)]
+  dt[, cumLAI := cumsum(lai_coh), by = .(doy,tod)]
   dt[, cumLAI_above := shift(cumLAI, fill = 0), by = .(doy,tod)]
   
   # Direct extinction coefficient
@@ -280,14 +280,14 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
 
   # --- Potential assimilation per cohort (g CO2 m-2 ground day-1) ---
   dt[, Assim_pot :=
-       (A_sun  * LAI * f_sun +
-          A_shade * LAI * (1 - f_sun))
+       (A_sun  * lai_coh * f_sun +
+          A_shade * lai_coh * (1 - f_sun))
           * time_step * 1e-6 * 44.0095 #convert from umol/m2 ground/s to g/m2 ground/timestep
   ]
   # Potential transpiration in L/m2
   dt[dt$cohort<=par()$n_cohorts, Tr := 
-       (Tr_sun  * LAI * f_sun +
-        Tr_shade * LAI * (1 - f_sun)) 
+       (Tr_sun  * lai_coh * f_sun +
+        Tr_shade * lai_coh * (1 - f_sun)) 
         * time_step
   ]
 
@@ -314,7 +314,7 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   first_tod <- dt$tod[1]
   
   #calculate maintenance respiration
-  dt[, rm := biomass * LAI/lai_tot # divide the respiration costs over the cohorts based on LAI
+  dt[, rm := biomass * lai_coh/lai # divide the respiration costs over the cohorts based on LAI
         * par()$fHW * par()$rm15*par()$rmQ10**((Temp-15)/10) # maintenance respiration rate based on temperature
         * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
   
