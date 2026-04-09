@@ -3,6 +3,7 @@ init_parameters <- function() {
 par <- list(
 
     #simulation config
+    n_days = 365,
     n_steps = 6,
     n_cohorts = 3,
     latitude = 52,
@@ -24,7 +25,7 @@ par <- list(
     rain_freq = 1,
 
     #plant function
-    rm15 = 0.0005,           # base mantenance respiration rate at 15 degrees C (g/g)
+    rm15 = 0.0001,           # base mantenance respiration rate at 15 degrees C (g/g)
     rmQ10 = 1.7,            # Q10 for maintenance respiration
     fHW = 0.38,             # fraction of total biomass that is heartwood (see BAAD dataset; Falster et.al. 2015)
     ccBIO = 0.69,           # construction cost of biomass; amount of biomass constructed from 1 g of glucose (g/g)

@@ -216,11 +216,11 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   setDT(dt)
   
   # ----- Ensure sorted for cumulative LAI -----
-  setorder(dt, doy, tod, cohort)
+  setorder(dt, day, tod, cohort)
   
   # ----- Cumulative LAI within day -----
-  dt[, cumLAI := cumsum(lai_coh), by = .(doy,tod)]
-  dt[, cumLAI_above := shift(cumLAI, fill = 0), by = .(doy,tod)]
+  dt[, cumLAI := cumsum(lai_coh), by = .(day,tod)]
+  dt[, cumLAI_above := shift(cumLAI, fill = 0), by = .(day,tod)]
   
   # Direct extinction coefficient
   dt[, kdir := sin(theta)]
@@ -231,7 +231,7 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   
   # ----- Light exiting each cohort -----
   dt[, Idir_out := ifelse(dt$cohort>par()$n_cohorts, 0, Idir * exp(-kdir * cumLAI))]
-  dt[, Idif_out := ifelse(dt$cohort>par()$n_cohorts, 0, Idif * exp(-kdir * cumLAI))]
+  dt[, Idif_out := ifelse(dt$cohort>par()$n_cohorts, 0, Idif * exp(-kdif * cumLAI))]
   
   # ----- Light intercepted -----
   dt[, intercepted_dir := Idir_in - Idir_out]
@@ -315,7 +315,7 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   
   #calculate maintenance respiration
   dt[, rm := biomass * lai_coh/lai # divide the respiration costs over the cohorts based on LAI
-        * par()$fHW * par()$rm15*par()$rmQ10**((Temp-15)/10) # maintenance respiration rate based on temperature
+        * (1-par()$fHW) * par()$rm15*par()$rmQ10**((Temp-15)/10) # maintenance respiration rate based on temperature
         * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
   
   #calculate total ecosystem respiration = 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
@@ -330,11 +330,11 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
 calc_water <- function(dt, par) {
   
   # Ensure order by time
-  setorder(dt, doy, tod, cohort)
+  setorder(dt, day, tod, cohort)
   
   # Construct continuous time vector
-  steps <- unique(dt[, .(doy, tod)])
-  setorder(steps, doy, tod)
+  steps <- unique(dt[, .(day, tod)])
+  setorder(steps, day, tod)
   
   n_steps <- nrow(steps)
   n_rows  <- nrow(dt)
@@ -348,7 +348,7 @@ calc_water <- function(dt, par) {
   
   # Index list in matching order
   step_index <- lapply(seq_len(n_steps), function(k) {
-    dt[doy == steps$doy[k] & tod == steps$tod[k], which = TRUE]
+    dt[day == steps$day[k] & tod == steps$tod[k], which = TRUE]
   })
   
   # Loop through time
@@ -357,13 +357,13 @@ calc_water <- function(dt, par) {
     idx   <- step_index[[k]]
     W_now <- Water_vec[idx[1]]
     S_now  <- Snow_vec[idx[1]]
-    tr_sum <- sum(dt$Tr[dt$doy == steps$doy[k] & dt$tod == steps$tod[k]])
+    tr_sum <- sum(dt$Tr[dt$day == steps$day[k] & dt$tod == steps$tod[k]])
     temp = dt$Temp[idx[1]]
     snow_fall = 0
     rain_fall = 0
     
     #Let's assume that rain only falls once a week, at nigh, so at the lowest value of tod
-    if(steps$doy[k]%%par()$rain_freq == 0 && steps$tod[k] == steps$tod[1]) {
+    if(steps$day[k]%%par()$rain_freq == 0 && steps$tod[k] == steps$tod[1]) {
       if(temp>0) {
         # precipitation falls in the form of water, corrected for timestep, note that precipitation data is /month
         rain_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200#* dt$time_step[idx[1]] / 2635200

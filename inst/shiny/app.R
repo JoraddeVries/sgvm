@@ -69,14 +69,12 @@ ui <- fluidPage(
         step    = 1,
         sep     = ""           # no thousands separator
       ),
-      
-      br(),
-      tags$h4("Initial Conditions"),
-      sliderInput("Winit", "Initial Soil Water Content (fraction)", min = 0, max = 1, value = 1, step = 0.1),
-      sliderInput("Sinit", "Initial Snowpack (L water/m²)", min = 0, max = 100, value = 0, step = 5),
 
       br(),
       actionButton("load_data", "Load Climate and Vegetation Data", class = "btn-warning"),
+      
+      br(), br(),
+      sliderInput("runtime", "Runtime (years)", min = 1, max = 5, value = 1, step = 1),
       
       br(), br(),
       actionButton("run_btn", "Run Model", class = "btn-primary"),
@@ -117,9 +115,9 @@ ui <- fluidPage(
         tabPanel("Map", plotOutput("clim_map", height = "500px")),
         tabPanel("PP output", plotOutput("assim_plot", height = "500px")),
         tabPanel("Water output", plotOutput("water_plot", height = "500px")),
-        tabPanel(
-          "Woody growth output", plotOutput("wood_growth_plot", height = "500px")
-        ),
+        # tabPanel(
+        #   "Woody growth output", plotOutput("wood_growth_plot", height = "500px")
+        # ),
         tabPanel("Output Summary",
           br(),
           DTOutput("monthly_summary"),
@@ -149,7 +147,6 @@ ui <- fluidPage(
   )
 )
 
-
 # =======================================================
 #                    SERVER
 # =======================================================
@@ -171,8 +168,6 @@ server <- function(input, output, session) {
     p$latitude  <- input$latitude
     p$longitude <- input$longitude
     p$Ca        <- input$Ca
-    p$Winit     <- input$Winit
-    p$Sinit     <- input$Sinit
     par(p)
 
     # load climate data
@@ -222,12 +217,6 @@ server <- function(input, output, session) {
       "bra" = -59
     )
 
-    new_sinit <- switch(input$location,
-      "ned" = 0,
-      "can" = 50,
-      "bra" = 0
-    )
-
     updateSliderInput(
       session,
       "latitude",
@@ -238,12 +227,6 @@ server <- function(input, output, session) {
       session,
       "longitude",
       value = new_lon
-    )
-
-    updateSliderInput(
-      session,
-      "Sinit",
-      value = new_sinit
     )
 
   })
@@ -379,13 +362,20 @@ server <- function(input, output, session) {
   # Run Model (button)
   # -------------------------------------------------------
   model_results <- eventReactive(input$run_btn, {
+
+    p <- par()
+    p$n_days    <- input$runtime * 365
+    par(p)
     
     # --- Build base dt ---
     dt <- data.table(
-      doy = rep(1:365, each = (par()$n_cohorts+1) * par()$n_steps),
+      day = rep(1:par()$n_days, each = (par()$n_cohorts+1) * par()$n_steps),
       tod = rep(1:par()$n_steps, each = par()$n_cohorts+1) / par()$n_steps - 0.5/par()$n_steps,
-      cohort = rep(1:(par()$n_cohorts+1), times = 365 * par()$n_steps)
+      cohort = rep(1:(par()$n_cohorts+1), times = par()$n_days * par()$n_steps)
     )
+
+    # add doy
+    dt[, doy := ((day - 1) %% 365) + 1]
     
     # make sure the model runs also if the data wasn't loaded
     clim_table <- clim_data()
@@ -413,6 +403,7 @@ server <- function(input, output, session) {
   monthly_summary <- reactive({
     req(model_results())
     
+    #filter the results to only include the second year of simulation
     dt <- model_results()
     clim <- clim_data()
     
@@ -489,29 +480,29 @@ server <- function(input, output, session) {
     req(dt)
     
     dt_day <- dt[, .(
-      Rm = sum(rm, na.rm = TRUE),
+      RE = sum(re, na.rm = TRUE),
       GPP = sum(Assim_wlim, na.rm = TRUE),
       NPP = sum(NPP, na.rm = TRUE)
-    ), by = doy]
+    ), by = day]
     
     # Reshape to long format for easy legend handling
     dt_long <- melt(
       dt_day,
-      id.vars = "doy",
-      measure.vars = c("GPP", "Rm", "NPP"),
+      id.vars = "day",
+      measure.vars = c("GPP", "RE", "NPP"),
       variable.name = "Type",
       value.name = "value"
     )
     
-    ggplot(dt_long, aes(x = doy, y = value, color = Type)) +
+    ggplot(dt_long, aes(x = day, y = value, color = Type)) +
       geom_line(linewidth = 1) +
       geom_hline(yintercept=0, linetype="dashed") +
       scale_color_manual(
-        values = c("GPP" = "blue", "Rm" = "red", "NPP" = "black"),
-        labels = c("GPP", "Rm", "NPP")
+        values = c("GPP" = "blue", "RE" = "red", "NPP" = "black"),
+        labels = c("GPP", "RE", "NPP")
       ) +
       labs(
-        x = "Day of Year",
+        x = "Day",
         y = "Carbon flux (g/m²)",
         title = "Daily Primary Productivity",
         color = ""   # legend title
@@ -534,25 +525,25 @@ server <- function(input, output, session) {
       Water_mean = mean(Water),
       Snow_mean = mean(Snow),
       Tr_mean = sum(Tr) * 10 #increase value of transpiration for visualisation
-    ), by = doy]
+    ), by = day]
     
     # Reshape to long format for easy legend handling
     dt_water_long <- melt(
       dt_water,
-      id.vars = "doy",
+      id.vars = "day",
       measure.vars = c("Water_mean", "Snow_mean", "Tr_mean"),
       variable.name = "Type",
       value.name = "value"
     )
     
-    ggplot(dt_water_long, aes(x = doy, y = value, color = Type)) +
+    ggplot(dt_water_long, aes(x = day, y = value, color = Type)) +
       geom_line(linewidth = 1) +
       scale_color_manual(
         values = c("Snow_mean" = "black", "Water_mean" = "blue", "Tr_mean" = "green"),
         labels = c("Soil Water", "Snow", "Transpiration (x10)")
       ) +
       labs(
-        x = "Day of Year",
+        x = "Day",
         y = "Water content of Soil/Snowpack (L/m²)",
         title = "Water",
         color = ""   # legend title
@@ -567,48 +558,48 @@ server <- function(input, output, session) {
   # -------------------------------------------------------
   # Wood growth tab
   # -------------------------------------------------------   
-  wood_growth <- reactive({
-    req(model_results())
-    calc_woody_growth(model_results())
-  })
+  # wood_growth <- reactive({
+  #   req(model_results())
+  #   calc_woody_growth(model_results())
+  # })
 
-  output$wood_growth_plot <- renderPlot({
+  # output$wood_growth_plot <- renderPlot({
 
-    df <- wood_growth()
-    req(nrow(df) > 0)
+  #   df <- wood_growth()
+  #   req(nrow(df) > 0)
 
-    # reshape to long format
-    plot_dt <- melt(
-      df,
-      id.vars = c("cohort_id", "age"),
-      measure.vars = c("size", "wall"),
-      variable.name = "variable",
-      value.name = "value"
-    )
+  #   # reshape to long format
+  #   plot_dt <- melt(
+  #     df,
+  #     id.vars = c("cohort_id", "age"),
+  #     measure.vars = c("size", "wall"),
+  #     variable.name = "variable",
+  #     value.name = "value"
+  #   )
 
-    ggplot(plot_dt, aes(x = cohort_id, y = value)) +
-      geom_line(alpha = 0.4) +
-      geom_point() +
-      facet_wrap(
-        ~ variable,
-        scales = "free_y",
-        labeller = as_labeller(
-          c(
-            size = "Cell size (µm)",
-            wall = "Cell wall thickness (µm)"
-          )
-        )
-      ) +
-      labs(
-        x = "Cell cohort",
-        y = NULL
-      ) +
-      theme_minimal() +
-      theme(
-        strip.text = element_text(face = "bold"),
-        panel.grid.minor = element_blank()
-      )
-  })
+  #   ggplot(plot_dt, aes(x = cohort_id, y = value)) +
+  #     geom_line(alpha = 0.4) +
+  #     geom_point() +
+  #     facet_wrap(
+  #       ~ variable,
+  #       scales = "free_y",
+  #       labeller = as_labeller(
+  #         c(
+  #           size = "Cell size (µm)",
+  #           wall = "Cell wall thickness (µm)"
+  #         )
+  #       )
+  #     ) +
+  #     labs(
+  #       x = "Cell cohort",
+  #       y = NULL
+  #     ) +
+  #     theme_minimal() +
+  #     theme(
+  #       strip.text = element_text(face = "bold"),
+  #       panel.grid.minor = element_blank()
+  #     )
+  # })
 
  
   # -------------------------------------------------------
