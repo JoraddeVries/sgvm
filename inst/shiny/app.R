@@ -76,7 +76,7 @@ ui <- fluidPage(
       br(), br(),
       sliderInput("runtime", "Runtime (years)", min = 1, max = 5, value = 1, step = 1),
       
-      br(), br(),
+      br(),
       actionButton("run_btn", "Run Model", class = "btn-primary"),
       
       br(), br(),

@@ -88,7 +88,7 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
     #saturation water vapour pressure (Pa)
     vps = c1*exp(c2*TleafC/(c3+TleafC))
     #Vapour Pressure Deficit (Pa)
-    vpd = vps - VP
+    vpd = pmax(0, vps - VP)
     #Latent heat of vaporisation of water in MJ/kg
     L = -0.0024*TleafC+2.5011
     #heat capacit of air in MJ/m3/k
