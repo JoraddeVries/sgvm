@@ -1,5 +1,6 @@
 # Export functions you want users to access
 export(run_sgvm)
+export(init_parameters)
 export(get_data)
 export(interpolate_data)
 export(set_environment)
