@@ -133,7 +133,7 @@ ui <- fluidPage(
           biomass in g
           lai in m2 leaf area / m2 ground area
           RE is respiration (maintenance + growth) in gC/month(year)
-          TR is transpiration in L/month(year)
+          TR is transpiration in mm/month(year)
           GPP is gtoss primary productivity in gC/m2/month(year)
           NPP is net primary productivity (GPP - RE) in gBiomass/m2/month(year)",
             width = "100%",
@@ -540,7 +540,7 @@ server <- function(input, output, session) {
       geom_line(linewidth = 1) +
       scale_color_manual(
         values = c("Snow_mean" = "black", "Water_mean" = "blue", "Tr_mean" = "green"),
-        labels = c("Soil Water", "Snow", "Transpiration (x10)")
+        labels = c("Soil Water", "Snowpack", "Evapotranspiration (x10)")
       ) +
       labs(
         x = "Day",

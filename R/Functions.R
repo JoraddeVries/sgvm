@@ -293,16 +293,17 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
 
   # The last cohort represents the undergrowth and soil, from which water transpires and evaporates, 
   # calculated using the Priestly Taylor equation, a simplified version of Pennman Monteith
-  dt[dt$cohort>par()$n_cohorts, Tr := {
-    res <- mapply(
-      calcPET,
-      Irr  = intercepted_dir + intercepted_dif, #Note that there is no conversion here, this is on purpose!
-      Temp  = Temp,
-      time = time_step,
-      SIMPLIFY = FALSE
+  # We assume that 1% of all soil water can be evaporated in a day, as drying out of the topsoil layer causes resistance, limiting evaporation
+  dt[cohort > par()$n_cohorts,
+    Tr := pmin(
+      par()$Wmax * 0.01 / par()$n_steps,
+      calcPET(
+        Irr  = intercepted_dir + intercepted_dif,
+        Temp = Temp,
+        time = time_step
+      )$PET
     )
-    .( sapply(res, `[[`, "PET") )
-  }]
+  ]
   
   # calculate the water balance
   dt <- calc_water(dt, par)
@@ -314,12 +315,12 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   first_tod <- dt$tod[1]
   
   #calculate maintenance respiration
-  dt[, rm := biomass * lai_coh/lai # divide the respiration costs over the cohorts based on LAI
+  dt[dt$cohort<=par()$n_cohorts, rm := biomass / par()$n_cohorts # divide the respiration costs over the cohorts
         * (1-par()$fHW) * par()$rm15*par()$rmQ10**((Temp-15)/10) # maintenance respiration rate based on temperature
         * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
   
   #calculate total ecosystem respiration = 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
-  dt[, re := rm + pmax(0, (Assim_wlim - rm)) * par()$ccBIO]
+  dt[, re := rm + pmax(0, (Assim_wlim - rm)) * (1-par()$ccBIO)]
   
   #calculate net primary productivity
   dt[, NPP := Assim_wlim - re]
@@ -362,14 +363,14 @@ calc_water <- function(dt, par) {
     snow_fall = 0
     rain_fall = 0
     
-    #Let's assume that rain only falls once a week, at nigh, so at the lowest value of tod
+    #Let's assume that rain only falls once a week, at night, so at the lowest value of tod
     if(steps$day[k]%%par()$rain_freq == 0 && steps$tod[k] == steps$tod[1]) {
       if(temp>0) {
         # precipitation falls in the form of water, corrected for timestep, note that precipitation data is /month
-        rain_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200#* dt$time_step[idx[1]] / 2635200
+        rain_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200
       } else {
         # precipitation falls in the form of snow, corrected for timestep, note that precipitation data is /month
-        snow_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200#* dt$time_step[idx[1]] / 2635200
+        snow_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200
       }
     }
     
