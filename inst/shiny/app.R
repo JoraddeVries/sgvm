@@ -132,8 +132,8 @@ ui <- fluidPage(
           tmin, tmax, and tavg in dC
           biomass in g
           lai in m2 leaf area / m2 ground area
-          RE is respiration (maintenance + growth) in gC/month(year)
-          TR is transpiration in mm/month(year)
+          RE is ecosystem respiration (maintenance + growth) in gC/month(year)
+          ET is evapotranspiration in mm/month(year)
           GPP is gtoss primary productivity in gC/m2/month(year)
           NPP is net primary productivity (GPP - RE) in gBiomass/m2/month(year)",
             width = "100%",
@@ -416,7 +416,7 @@ server <- function(input, output, session) {
       tavg        = mean(.SD$Temp,    na.rm = TRUE),
       lai        = mean(.SD$lai,    na.rm = TRUE),
       RE         = sum(re,  na.rm = TRUE),
-      TR         = sum(Uptake,  na.rm = TRUE),
+      ET         = sum(Uptake,  na.rm = TRUE),
       GPP        = sum(Assim_wlim, na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
     ), by = month]
@@ -442,7 +442,7 @@ server <- function(input, output, session) {
       tavg       = mean(tavg,      na.rm = TRUE),
       lai        = mean(lai,       na.rm = TRUE),
       RE         = sum(RE,         na.rm = TRUE),
-      TR         = sum(TR,         na.rm = TRUE),
+      ET         = sum(ET,         na.rm = TRUE),
       GPP        = sum(GPP,        na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
     )]

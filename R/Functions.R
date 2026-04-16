@@ -313,10 +313,14 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
 
   #get first tod value to add the night's respiration to the first day
   first_tod <- dt$tod[1]
+
+  #calculate average yearly temperature, which will used as the baseline for the temperature response of maintenance respiration,
+  #thereby assumining long term accliation to temperature (see Atkin 2015)
+  Tavg <- pmax(par()$rmMin, (mean(dt$tmin) + mean(dt$tmax)) / 2)
   
   #calculate maintenance respiration
   dt[dt$cohort<=par()$n_cohorts, rm := biomass / par()$n_cohorts # divide the respiration costs over the cohorts
-        * (1-par()$fHW) * par()$rm15*par()$rmQ10**((Temp-15)/10) # maintenance respiration rate based on temperature
+        * (1-par()$fHW) * par()$rmAvg*par()$rmQ10**((Temp-Tavg)/10) # maintenance respiration rate based on temperature
         * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
   
   #calculate total ecosystem respiration = 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
