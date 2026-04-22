@@ -241,7 +241,7 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   dt[, f_sun := exp(-kdir * cumLAI_above)]
   
   # --- Assimilation: sun leaves ---
-  dt[dt$cohort<=par()$n_cohorts, c("A_sun", "Tr_sun", "gs") := {
+  dt[dt$cohort<=par()$n_cohorts, c("A_sun", "Tr_sun", "gs", "vpd") := {
     res <- mapply(
       calcA,
       PPFD  = intercepted_dir*cdir + intercepted_dif*cdif,
@@ -256,11 +256,12 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
     
     .( sapply(res, `[[`, "An"),
        sapply(res, `[[`, "Tr"),
-       sapply(res, `[[`, "gs") )
+       sapply(res, `[[`, "gs"),
+       sapply(res, `[[`, "vpd") )
   }]
   
   # --- Assimilation: shade leaves ---
-  dt[dt$cohort<=par()$n_cohorts, c("A_shade", "Tr_shade", "gs") := {
+  dt[dt$cohort<=par()$n_cohorts, c("A_shade", "Tr_shade", "gs", "vpd") := {
     res <- mapply(
       calcA,
       PPFD  = intercepted_dif*cdif,
@@ -275,14 +276,15 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
     
     .( sapply(res, `[[`, "An"),
        sapply(res, `[[`, "Tr"),
-       sapply(res, `[[`, "gs") )
+       sapply(res, `[[`, "gs"),
+       sapply(res, `[[`, "vpd") )
   }]
 
   # --- Potential assimilation per cohort (g CO2 m-2 ground day-1) ---
   dt[, Assim_pot :=
        (A_sun  * lai_coh * f_sun +
           A_shade * lai_coh * (1 - f_sun))
-          * time_step * 1e-6 * 44.0095 #convert from umol/m2 ground/s to g/m2 ground/timestep
+          * time_step * 1e-6 * 12.011 #convert from umol CO2/m2 ground/s to g C/m2 ground/timestep
   ]
   # Potential transpiration in L/m2
   dt[dt$cohort<=par()$n_cohorts, Tr := 
