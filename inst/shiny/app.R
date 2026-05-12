@@ -41,7 +41,8 @@ ui <- fluidPage(
         choices = c(
           "Historic 1970-2000" = "historic",
           "SSP1-2.6 2081–2100" = "UKESM_ssp126_2081-2100",
-          "SSP5-3.7 2081–2100" = "UKESM_ssp370_2081-2100"
+          "SSP2-4.5 2081–2100" = "UKESM_ssp245_2081-2100",
+          "SSP3-7.0 2081–2100" = "UKESM_ssp370_2081-2100"
         ),
         selected = "historic"
       ),
@@ -103,11 +104,11 @@ ui <- fluidPage(
             "input_notes",
             label = NULL,
             placeholder = "prec is precipitation in mm/m2/month
-            srad is incoming solar radiation in kJ/m2/day
-            tmin and tmax are daily minimum and maximum temperatures in dC
-            vapr is water vapour pressure in kPa
-            lai is leaf area index in m2 leaf area / m2 ground area
-            biomass is total vegetation biomass in g/m2",
+srad is incoming solar radiation in kJ/m2/day
+tmin and tmax are daily minimum and maximum temperatures in dC
+vapr is water vapour pressure in kPa
+lai is leaf area index in m2 leaf area / m2 ground area
+biomass is total vegetation biomass in g/m2",
             width = "100%",
             height = "150px"
           ),
@@ -126,16 +127,22 @@ ui <- fluidPage(
           textAreaInput(
             "summary_notes",
             label = NULL,
-            placeholder = "The output table contains 4 input variables (prec, tmin, tmax, biomass), two interpolated variables (tavg, lai), and 4 output variables (RE, TR, GPP, NPP)
-          Month 13 are the yearly sums/averages
-          prec in mm/m2/month(year)
-          tmin, tmax, and tavg in dC
-          biomass in g
-          lai in m2 leaf area / m2 ground area
-          RE is ecosystem respiration (maintenance + growth) in gC/month(year)
-          ET is evapotranspiration in mm/month(year)
-          GPP is gtoss primary productivity in gC/m2/month(year)
-          NPP is net primary productivity (GPP - RE) in gBiomass/m2/month(year)",
+            placeholder = "The output table contains:
+- four input variables (prec, tmin, tmax, biomass)
+- two interpolated variables (tavg, lai)
+- seven output variables (Ev, Tr, Le, RE, TR, GPP, NPP)
+
+Month 13 are the yearly sums/averages
+
+Units:
+  prec in mm/m2/month(year)
+  tmin, tmax, and tavg in dC
+  biomass in g
+  lai in m2 leaf area / m2 ground area
+  RE is ecosystem respiration (maintenance + growth) in gC/month(year)
+  Ev, Tr, and Le are Evaporation, Transpiration and Leaching in mm/month(year)
+  GPP is gross primary productivity in gC/m2/month(year)
+  NPP is net primary productivity (GPP - RE) in gBiomass/m2/month(year)",
             width = "100%",
             height = "150px"
           ),
@@ -191,6 +198,7 @@ server <- function(input, output, session) {
     new_Ca <- switch(input$climate_scenario,
       "historic" = 400,
       "UKESM_ssp126_2081-2100" = 450,
+      "UKESM_ssp245_2081-2100" = 550,
       "UKESM_ssp370_2081-2100" = 850
     )
 
@@ -415,8 +423,10 @@ server <- function(input, output, session) {
     monthly <- dt[, .(
       tavg        = mean(.SD$Temp,    na.rm = TRUE),
       lai        = mean(.SD$lai,    na.rm = TRUE),
+      Ev         = sum(Evap,  na.rm = TRUE),
+      Tr         = sum(Transp,  na.rm = TRUE),
+      Le         = sum(Leaching,  na.rm = TRUE),
       RE         = sum(re,  na.rm = TRUE),
-      ET         = sum(Uptake,  na.rm = TRUE),
       GPP        = sum(Assim_wlim, na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
     ), by = month]
@@ -441,8 +451,10 @@ server <- function(input, output, session) {
       biomass    = mean(biomass,   na.rm = TRUE),
       tavg       = mean(tavg,      na.rm = TRUE),
       lai        = mean(lai,       na.rm = TRUE),
+      Ev         = sum(Ev,         na.rm = TRUE),
+      Tr         = sum(Tr,         na.rm = TRUE),
+      Le         = sum(Le,         na.rm = TRUE),
       RE         = sum(RE,         na.rm = TRUE),
-      ET         = sum(ET,         na.rm = TRUE),
       GPP        = sum(GPP,        na.rm = TRUE),
       NPP        = sum(NPP,        na.rm = TRUE)
     )]

@@ -90,6 +90,8 @@ set_environment <- function(dt, input_data, par, cloud_cover = 0.2) {
   
   # Snow
   dt[, Snow := par()$Sinit]
+
+  return(dt)
 }
 
 get_data <- function(lat, lon, data) {
@@ -335,6 +337,9 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
 }
 
 calc_water <- function(dt, par) {
+
+  # paramters
+  p <- par()
   
   # Ensure order by time
   setorder(dt, day, tod, cohort)
@@ -348,8 +353,11 @@ calc_water <- function(dt, par) {
   
   # Preallocate
   f_Tr_vec   <- numeric(n_rows)
-  Uptake_vec <- numeric(n_rows)
+  Transp_vec <- numeric(n_rows)
+  Evap_vec <- numeric(n_rows)
   Leaching_vec <- numeric(n_rows)
+  Evap_buffer_vec <- numeric(n_rows)
+  buffer_size <- p$Wmax * 0.02 #assuming a buffer zone of 2cm in a bucket of 1m
   Water_vec  <- dt$Water   # shared bucket
   Snow_vec   <- dt$Snow
   
@@ -364,45 +372,82 @@ calc_water <- function(dt, par) {
     idx   <- step_index[[k]]
     W_now <- Water_vec[idx[1]]
     S_now  <- Snow_vec[idx[1]]
-    tr_sum <- sum(dt$Tr[dt$day == steps$day[k] & dt$tod == steps$tod[k]])
+    B_now <- Evap_buffer_vec[idx[1]]
     temp = dt$Temp[idx[1]]
     snow_fall = 0
     rain_fall = 0
-    
+
     #Let's assume that rain only falls once a week, at night, so at the lowest value of tod
-    if(steps$day[k]%%par()$rain_freq == 0 && steps$tod[k] == steps$tod[1]) {
+    if(steps$day[k]%%p$rain_freq == 0 && steps$tod[k] == steps$tod[1]) {
       if(temp>0) {
         # precipitation falls in the form of water, corrected for timestep, note that precipitation data is /month
-        rain_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200
+        rain_fall <- dt$prec[idx[1]] * p$rain_freq * 86400/2635200
       } else {
         # precipitation falls in the form of snow, corrected for timestep, note that precipitation data is /month
-        snow_fall <- dt$prec[idx[1]] * par()$rain_freq * 86400/2635200
+        snow_fall <- dt$prec[idx[1]] * p$rain_freq * 86400/2635200
       }
     }
     
     # snowmelt, assuming a melting rate of 2.75 mm snow per degree day >0C, and a snow density of 10mm snow = 1 mm water
-    snow_melt <- pmin(S_now, pmax(0, temp) * 0.275 * dt$time_step[idx[1]] / 86400)
+    snow_melt <- min(S_now, max(0, temp) * 0.275 * dt$time_step[idx[1]] / 86400)
     
-    # uptake
-    uptake <- if(temp>0) pmin(tr_sum, W_now + rain_fall + snow_melt) else 0
-    f_tr   <- if (tr_sum>0) uptake / tr_sum else 0
-    
-    # store
-    f_Tr_vec[idx]   <- f_tr
-    Uptake_vec[idx] <- uptake
+    # First, add precip and snowmelt to the buffer layer
+    B_new <- B_now + rain_fall + snow_melt
 
+    # Then, calculate infiltration when buffer water content is larger than the max buffer size, and reduce B_new
+    infiltration <- pmax(0, B_new - buffer_size)
+    B_new <- B_new - infiltration
+
+    # potential evaporation only for ground cohort
+    ground <- idx[dt$cohort[idx] >  p$n_cohorts] 
+    ev_sum <- sum(dt$Tr[ground])
+
+    # Evaporation is limited either by water in the buffer layer, or by potential evap
+    evap <- pmin(B_new, ev_sum)
+    Evap_vec[ground] <- evap
+
+    # subtract evap from buffer layer
+    B_new <- B_new - evap
+
+    # calculate the new water content past the buffer layer
+    W_new <- pmax(0, W_now + infiltration)
+
+    # calculate Leaching
+    leach <- pmax(0, W_new - p$Wmax)
+    Leaching_vec[ground] <- leach
+
+    # update the water content
+    W_new <- W_new - leach
+
+    # potential transpiration only for leafy cohorts
+    leafy  <- idx[dt$cohort[idx] <= p$n_cohorts]
+    tr_vec <- dt$Tr[leafy]          # per-cohort potential transpiration
+    tr_sum <- sum(tr_vec)
+
+    # Shared scaling factor: how much of total demand can be met
+    transp_total <- if(temp > 0) min(tr_sum, W_new) else 0
+    f_tr         <- if(tr_sum > 0) transp_total / tr_sum else 0
+
+    # Apply shared f_tr to each cohort individually
+    f_Tr_vec[leafy]   <- f_tr
+    Transp_vec[leafy] <- tr_vec * f_tr   # per-cohort actual transpiration
+
+    # Total water withdrawn from soil
+    W_new <- max(0, W_new - transp_total)
+    
     # compute Water and Snow in the next time step
     if (k < n_steps) {
-      W_new = pmax(0, W_now + rain_fall + snow_melt - tr_sum)
-      Leaching_vec[ step_index[[k]] ] <- pmax(0, W_new - par()$Wmax) # excess water leaches out
-      Water_vec[ step_index[[k+1]] ] <- pmin(par()$Wmax, W_new)
+      Water_vec[ step_index[[k+1]] ] <- pmin(p$Wmax, W_new)
       Snow_vec[ step_index[[k+1]] ] <- pmax(0, S_now + snow_fall - snow_melt)
+      Evap_buffer_vec[ step_index[[k+1]] ] <- B_new
     }
   }
   
   # Write back
   dt[, f_Tr := f_Tr_vec]
-  dt[, Uptake := Tr * f_Tr_vec]
+  dt[, Transp := Transp_vec]
+  dt[, Evap := Evap_vec]
+  dt[, Buffer := Evap_buffer_vec]
   dt[, Water := Water_vec]
   dt[, Snow := Snow_vec]
   dt[, Leaching := Leaching_vec]

@@ -11,7 +11,7 @@ par <- list(
 
     #inititation
     Ca = 400,
-    Wmax = 100,
+    Wmax = 50,
     Winit = 1,
     Sinit = 0,
 

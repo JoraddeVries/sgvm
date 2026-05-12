@@ -144,7 +144,7 @@ calcA = function(PPFD, Ca, TleafC, VP, O2, LN, gs=NA) {
     Tr = 1 / (1 / gsw + 1 / gbw) * vpd / (Pair*1e3) #Transpiration in (mol/m^2/s)
     Tr_L = Tr * 18.015 * 1e-3 # convert from mol to L
     
-    return (list(An=An, Tr=Tr_L, gs=gs, vpd=vpd)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
+    return (list(An=An, Tr=Tr_L, gs=gs, vpd=vpd/1000)) # if desired, we can also add Ag, gs, Ci, Ac, Aj, Ap
   })
 }
 
