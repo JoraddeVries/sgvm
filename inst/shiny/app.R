@@ -24,7 +24,26 @@ cohort_default <- data.table(
 #                 SHINY APP
 # =======================================================
 ui <- fluidPage(
-  
+
+  tags$head(
+    tags$style("
+      /* Inverted leaf-on slider: blue on the tails, grey in the selected middle */
+      .inverted-slider .irs-line {
+        background: #428bca !important;
+      }
+      .inverted-slider .irs-bar {
+        background: #dee2e6 !important;
+        border-top-color:    #dee2e6 !important;
+        border-bottom-color: #dee2e6 !important;
+      }
+    "),
+    tags$script("
+      $(document).on('change', '#lai_invert', function() {
+        $('#lai_range').closest('.shiny-input-container').toggleClass('inverted-slider', this.checked);
+      });
+    ")
+  ),
+
   titlePanel("Static Global Vegetation Model"),
   
   sidebarLayout(
@@ -70,6 +89,21 @@ ui <- fluidPage(
         step    = 1,
         sep     = ""           # no thousands separator
       ),
+      checkboxInput(
+        inputId = "lai_invert",
+        label   = "Invert (southern hemisphere)",
+        value   = FALSE
+      ),
+      sliderInput(
+        inputId = "lai_coh_split",
+        label   = "LAI distribution over cohorts (%, top → bottom)",
+        min     = 0,
+        max     = 100,
+        value   = c(33, 67),
+        step    = 1,
+        sep     = ""
+      ),
+      textOutput("lai_coh_display"),
 
       br(),
       actionButton("load_data", "Load Climate and Vegetation Data", class = "btn-warning"),
@@ -81,7 +115,8 @@ ui <- fluidPage(
       actionButton("run_btn", "Run Model", class = "btn-primary"),
       
       br(), br(),
-      downloadButton("download_output", "Save Full Model Output")
+      downloadButton("download_output",      "Download output (CSV)"),
+      downloadButton("download_output_xlsx", "Download output (XLSX)")
     ),
     
     # -------------------------------------------------------
@@ -148,7 +183,27 @@ Units:
           ),
           br(),
           downloadButton("download_summary", "Download summary (CSV)")
-        )        
+        ),
+        tabPanel("Physiology",
+          br(),
+          fluidRow(
+            column(3,
+              tags$h4("Vary driver"),
+              radioButtons(
+                "phys_driver",
+                label    = NULL,
+                choices  = c("Light" = "light", "Temperature" = "temp", "CO2" = "co2"),
+                selected = "light"
+              ),
+              hr(),
+              tags$h4("Hold constant"),
+              uiOutput("phys_controls")
+            ),
+            column(9,
+              plotOutput("phys_plot", height = "500px")
+            )
+          )
+        )
       )
     )
   )
@@ -162,8 +217,9 @@ server <- function(input, output, session) {
   # initiate parameters
   par <- reactiveVal(init_parameters())
   
-  # Holds climate table (editable)
-  clim_data <- reactiveVal(NULL)
+  # Holds climate table (editable) and the original loaded values for change highlighting
+  clim_data          <- reactiveVal(NULL)
+  original_clim_data <- reactiveVal(NULL)
   clim_raster <- reactiveVal(NULL)
   current_month_str <- reactive({as.integer(format(Sys.Date(), "%m"))})   # 1-12
   
@@ -180,6 +236,7 @@ server <- function(input, output, session) {
     # load climate data
     w <- SGVM::get_data(input$latitude, input$longitude, input$climate_scenario)
     clim_data(w)
+    original_clim_data(copy(w))
     
     # Load a representative WorldClim raster to plot (example: January tavg)
     r <- rast(
@@ -245,22 +302,63 @@ server <- function(input, output, session) {
   
   output$clim_table <- renderDT({
     req(clim_data())
-    
-    df <- copy(clim_data())
-    
-    datatable(
-      round(df, 2),
+
+    editable_cols <- c("prec", "tmin", "tmax", "vapr", "lai", "biomass")
+    df   <- round(copy(clim_data()), 2)
+    orig <- original_clim_data()
+
+    if (!is.null(orig)) {
+      orig_r <- round(copy(orig), 2)
+      for (col in editable_cols) {
+        if (col %in% names(df)) {
+          df[[paste0(col, "_color")]] <- ifelse(
+            df[[col]] > orig_r[[col]], "up",
+            ifelse(df[[col]] < orig_r[[col]], "down", "")
+          )
+        }
+      }
+    }
+
+    color_col_idx <- which(grepl("_color$", names(df))) - 1  # 0-based for DT
+
+    tbl <- datatable(
+      df,
       rownames = FALSE,
       editable = FALSE,
-      selection = list(
-        mode = "single",
-        target = "cell"
-      ),
+      selection = list(mode = "single", target = "cell"),
       options = list(
         pageLength = 12,
-        dom = "t"
+        dom = "t",
+        columnDefs = if (length(color_col_idx) > 0)
+          list(list(visible = FALSE, targets = color_col_idx))
+        else
+          list()
       )
     )
+
+    for (col in editable_cols) {
+      color_col <- paste0(col, "_color")
+      if (color_col %in% names(df)) {
+        tbl <- formatStyle(tbl, col, valueColumns = color_col,
+                           backgroundColor = styleEqual(
+                             c("up", "down"),
+                             c("#c3e6cb", "#f5c6cb")
+                           ))
+      }
+    }
+
+    tbl
+  })
+
+  # Cohort LAI fractions derived from the two partition handles
+  cohort_fracs <- reactive({
+    s <- input$lai_coh_split
+    c(s[1], s[2] - s[1], 100 - s[2], 0) / 100
+  })
+
+  output$lai_coh_display <- renderText({
+    f <- round(cohort_fracs() * 100)
+    paste0("C1 (top): ", f[1], "%  |  C2: ", f[2], "%  |  C3 (bottom): ", f[3], "%")
   })
 
   #Table editors
@@ -395,8 +493,8 @@ server <- function(input, output, session) {
     dt <- SGVM::set_environment(dt, clim_table, par)
 
     # modify lai based on phenology input
-    dt[, phenology := fifelse(doy >= input$lai_range[1] & doy <= input$lai_range[2], 1,0)]
-    dt[, lai_coh := cohort_default$lai_coh[cohort] * lai * phenology]
+    dt[, phenology := fifelse(xor(doy >= input$lai_range[1] & doy <= input$lai_range[2], input$lai_invert), 1, 0)]
+    dt[, lai_coh := cohort_fracs()[cohort] * lai * phenology]
 
     # calculate assimilation
     dt <- SGVM::calc_assimilation(dt, par)
@@ -641,20 +739,105 @@ server <- function(input, output, session) {
   # Download the output table
   # -------------------------------------------------------
   output$download_output <- downloadHandler(
-    
-    filename = function() {
-      paste0("model_output_", Sys.Date(), ".csv")
-    },
-    
-    content = function(file) {
-      # Get the latest model results
-      dt <- model_results()
-      
-      # Save to CSV
-      fwrite(dt, file)  # data.table::fwrite for speed
-    }
+    filename = function() paste0("model_output_", Sys.Date(), ".csv"),
+    content  = function(file) fwrite(model_results(), file)
   )
-  
+
+  output$download_output_xlsx <- downloadHandler(
+    filename = function() paste0("model_output_", Sys.Date(), ".xlsx"),
+    content  = function(file) writexl::write_xlsx(model_results(), file)
+  )
+
+  # -------------------------------------------------------
+  # Physiology response curves
+  # -------------------------------------------------------
+  output$phys_controls <- renderUI({
+    switch(input$phys_driver,
+      light = tagList(
+        sliderInput("phys_temp", "Temperature (deg C)", min = -5,  max = 45,   value = 20,  step = 1),
+        sliderInput("phys_ca",   "CO2 (ppm)",           min = 200, max = 1000, value = 415, step = 5)
+      ),
+      temp = tagList(
+        sliderInput("phys_ppfd", "Light (umol/m2/s)",   min = 0,   max = 2000, value = 800, step = 50),
+        sliderInput("phys_ca",   "CO2 (ppm)",           min = 200, max = 1000, value = 415, step = 5)
+      ),
+      co2 = tagList(
+        sliderInput("phys_ppfd", "Light (umol/m2/s)",   min = 0,   max = 2000, value = 800, step = 50),
+        sliderInput("phys_temp", "Temperature (deg C)", min = -5,  max = 45,   value = 20,  step = 1)
+      )
+    )
+  })
+
+  phys_data <- reactive({
+    driver <- req(input$phys_driver)
+    ppfd   <- if (!is.null(input$phys_ppfd)) input$phys_ppfd else 800
+    temp   <- if (!is.null(input$phys_temp)) input$phys_temp else 20
+    ca     <- if (!is.null(input$phys_ca))   input$phys_ca   else 415
+
+    run_calcA <- function(p, t, c) {
+      tryCatch(
+        SGVM:::calcA(PPFD = p, Ca = c, TleafC = t, VP = 1000, O2 = 210000, LN = 2),
+        error = function(e) list(An = NA_real_, Tr = NA_real_)
+      )
+    }
+
+    x <- switch(driver,
+      light = seq(0,   2000, by = 20),
+      temp  = seq(-5,  45,   by = 1),
+      co2   = seq(200, 1000, by = 10)
+    )
+
+    results <- switch(driver,
+      light = lapply(x, function(p) run_calcA(p, temp, ca)),
+      temp  = lapply(x, function(t) run_calcA(ppfd, t,   ca)),
+      co2   = lapply(x, function(c) run_calcA(ppfd, temp, c))
+    )
+
+    An <- sapply(results, function(r) r$An)
+    Tr <- sapply(results, function(r) r$Tr) * 55508  # L/m2/s -> mmol/m2/s
+
+    # Maintenance respiration, Tavg fixed at 15 deg C as temperate acclimation reference
+    Rm_temps <- if (driver == "temp") x else rep(temp, length(x))
+    Rm <- SGVM:::calc_rm_rate(Rm_temps, par(), 15) * 1000  # g/g/day -> mg/g/day
+
+    data.frame(x = x, An = An, Tr = pmax(0, Tr), Rm = Rm)
+  })
+
+  output$phys_plot <- renderPlot({
+    df     <- phys_data()
+    driver <- input$phys_driver
+
+    x_label <- switch(driver,
+      light = "Light (umol m-2 s-1)",
+      temp  = "Temperature (deg C)",
+      co2   = "CO2 (ppm)"
+    )
+
+    th <- theme_classic(base_size = 13) +
+      theme(plot.title = element_text(face = "bold"))
+
+    p1 <- ggplot(df, aes(x = x, y = An)) +
+      geom_line(colour = "#2c7bb6", linewidth = 1) +
+      geom_hline(yintercept = 0, linetype = "dashed", colour = "grey60") +
+      labs(title = "Photosynthesis", x = x_label,
+           y = expression(mu*mol~CO[2]~m^{-2}~s^{-1})) +
+      th
+
+    p2 <- ggplot(df, aes(x = x, y = Tr)) +
+      geom_line(colour = "#1a9641", linewidth = 1) +
+      labs(title = "Transpiration", x = x_label,
+           y = expression(mmol~H[2]*O~m^{-2}~s^{-1})) +
+      th
+
+    p3 <- ggplot(df, aes(x = x, y = Rm)) +
+      geom_line(colour = "#d7191c", linewidth = 1) +
+      labs(title = "Maintenance respiration", x = x_label,
+           y = expression(mg~g^{-1}~day^{-1})) +
+      th
+
+    cowplot::plot_grid(p1, p2, p3, nrow = 1)
+  })
+
  }
 
 # Run app

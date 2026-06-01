@@ -1,0 +1,4 @@
+- de leaf on slider moet ook in de zomer blad af periode kunnen weergeven
+- download model output keuze voor csv of xlxs
+- pop up grafieken maken met basale temperatuur relaties met photosynthesis en re (a.o.)
+- als je een cell veranderd in de input tabel, kleur geven, rood voor decrease, groen voor increase

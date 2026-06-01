@@ -211,6 +211,12 @@ interpolate_data <- function(dt_month, INTER) {
   return(dt_daily)
 }
 
+# Per-unit-biomass maintenance respiration rate (g/g/day) at temperature temp,
+# given a long-term acclimation temperature Tavg (Atkin 2015).
+calc_rm_rate <- function(temp, par, Tavg) {
+  par$rmAvg * par$rmQ10^((temp - Tavg) / 10)
+}
+
 calc_assimilation <- function(dt, par, kdif = 0.7) {
   
   stopifnot(is.data.table(dt))
@@ -323,9 +329,9 @@ calc_assimilation <- function(dt, par, kdif = 0.7) {
   Tavg <- pmax(par()$rmMin, (mean(dt$tmin) + mean(dt$tmax)) / 2)
   
   #calculate maintenance respiration
-  dt[dt$cohort<=par()$n_cohorts, rm := biomass / par()$n_cohorts # divide the respiration costs over the cohorts
-        * (1-par()$fHW) * par()$rmAvg*par()$rmQ10**((Temp-Tavg)/10) # maintenance respiration rate based on temperature
-        * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)] # gC/gC per timestep, add the night to the first time step
+  dt[dt$cohort<=par()$n_cohorts, rm := biomass / par()$n_cohorts
+        * (1-par()$fHW) * calc_rm_rate(Temp, par(), Tavg)
+        * fifelse(tod == first_tod, (time_step + (24-dayLength) * 3600) / 86400, time_step / 86400)]
   
   #calculate total ecosystem respiration = 0.69 accounts for the conversion of glucose to biomass (Poorter 1997)
   dt[, re := rm + pmax(0, (Assim_wlim - rm)) * (1-par()$ccBIO)]
